@@ -14,24 +14,19 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Z.ai Code Scaffold - AI-Powered Development",
-  description: "Modern Next.js scaffold optimized for AI-powered development with Z.ai. Built with TypeScript, Tailwind CSS, and shadcn/ui.",
-  keywords: ["Z.ai", "Next.js", "TypeScript", "Tailwind CSS", "shadcn/ui", "AI development", "React"],
-  authors: [{ name: "Z.ai Team" }],
+  title: "TicketFiscal AI — Del ticket de WhatsApp al asiento contable",
+  description:
+    "Motor de extracción fiscal con IA para gestorías españolas: lee tickets y facturas por WhatsApp, valida según AEAT (RD 1619/2012), clasifica en el PGC y prepara el Modelo 303.",
+  keywords: ["gestoría", "AEAT", "IVA", "Modelo 303", "PGC", "facturas", "autónomos", "WhatsApp"],
+  authors: [{ name: "TicketFiscal AI" }],
   icons: {
     icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
   },
   openGraph: {
-    title: "Z.ai Code Scaffold",
-    description: "AI-powered development with modern React stack",
-    url: "https://chat.z.ai",
-    siteName: "Z.ai",
+    title: "TicketFiscal AI",
+    description: "Del ticket de WhatsApp al asiento contable, con reglas AEAT y PGC.",
+    siteName: "TicketFiscal AI",
     type: "website",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Z.ai Code Scaffold",
-    description: "AI-powered development with modern React stack",
   },
 };
 
@@ -41,7 +36,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="es" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >

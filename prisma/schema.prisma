@@ -1,8 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// Prisma schema — TicketFiscal AI
+// Documentos fiscales extraídos de tickets/facturas vía WhatsApp
 
 generator client {
   provider = "prisma-client-js"
@@ -13,20 +10,38 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
+model Documento {
+  id              String   @id @default(cuid())
+  clienteNombre   String   @default("Juan Pérez García")
+  clienteNif      String   @default("12345678Z")
 
-model Post {
-  id        String   @id @default(cuid())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  // Resultado de la extracción IA
+  estado          String // VALIDO | REQUIERE_REVISION | ILEGIBLE
+  tipoDocumento   String // FACTURA_COMPLETA | FACTURA_SIMPLIFICADA | NO_VALIDO
+  ivaDeducible    Boolean  @default(false)
+  emisorNombre    String?
+  emisorNif       String?
+  receptorNombre  String?
+  receptorNif     String?
+  numeroFactura   String?
+  fechaEmision    String? // YYYY-MM-DD
+  moneda          String   @default("EUR")
+
+  // Impuestos (primera línea del desglose)
+  baseImponible   Float    @default(0)
+  porcentajeIva   Float    @default(0)
+  cuotaIva        Float    @default(0)
+  irpfPorcentaje  Float    @default(0)
+  irpfImporte     Float    @default(0)
+  totalFactura    Float    @default(0)
+
+  cuentaPgc       String?
+  confianza       Float    @default(0)
+  motivoRevision  String?
+  mensajeWhatsapp String?
+
+  // Metadatos del demo
+  imagenNombre    String? // nombre del archivo de muestra o "subida propia"
+  trimestre       String? // 1T2025 ... 4T2025
+  createdAt       DateTime @default(now())
 }
