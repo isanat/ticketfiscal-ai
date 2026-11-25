@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Calculator,
   CheckCircle2,
+  Database,
   Download,
   FileSpreadsheet,
   Loader2,
@@ -54,12 +55,14 @@ export function GestoriaPanel({ refresco }: Props) {
   const [trimestre, setTrimestre] = useState<string>("todos");
   const [detalle, setDetalle] = useState<Documento | null>(null);
   const [eliminando, setEliminando] = useState<string | null>(null);
+  const [modo, setModo] = useState<string | null>(null);
 
   const cargar = async () => {
     try {
       const res = await fetch("/api/documents", { cache: "no-store" });
       const json = await res.json();
       setDocs(json.documentos ?? []);
+      setModo(json.modo ?? null);
     } catch {
       toast({ title: "Error", description: "No se pudo cargar el panel", variant: "destructive" });
     } finally {
@@ -186,6 +189,14 @@ export function GestoriaPanel({ refresco }: Props) {
             <CardTitle className="flex items-center gap-2 text-base">
               <FileSpreadsheet className="h-4 w-4 text-primary" />
               Lote contable · {CLIENTE}
+              {modo === "memoria" && (
+                <Badge
+                  variant="outline"
+                  className="ml-1 gap-1 border-amber-300 bg-amber-50 text-[10px] text-amber-700"
+                >
+                  <Database className="h-3 w-3" /> Demo · datos en memoria
+                </Badge>
+              )}
             </CardTitle>
             <div className="flex flex-wrap items-center gap-2">
               <Select value={trimestre} onValueChange={setTrimestre}>
@@ -418,7 +429,23 @@ function DialogoDetalle({ doc, onClose }: { doc: Documento | null; onClose: () =
     ["Tipo de documento", doc.tipoDocumento],
     ["IVA deducible", doc.ivaDeducible ? "Sí" : "No"],
     ["Emisor", `${doc.emisorNombre ?? "—"} (${doc.emisorNif ?? "sin NIF"})`],
+    [
+      "NIF emisor válido",
+      doc.nifEmisorValido === true
+        ? "Sí · dígito de control verificado"
+        : doc.nifEmisorValido === false
+          ? "NO · dígito de control erróneo"
+          : "sin validar",
+    ],
     ["Receptor", `${doc.receptorNombre ?? "—"} (${doc.receptorNif ?? "sin NIF"})`],
+    [
+      "NIF receptor válido",
+      doc.nifReceptorValido === true
+        ? "Sí · dígito de control verificado"
+        : doc.nifReceptorValido === false
+          ? "NO · dígito de control erróneo"
+          : "sin validar",
+    ],
     ["Nº factura", doc.numeroFactura ?? "—"],
     ["Fecha emisión", doc.fechaEmision ?? "—"],
     ["Cuenta PGC", etiquetaCuenta(doc.cuentaPgc)],

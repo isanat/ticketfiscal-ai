@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Image as ImageIcon, Paperclip, Send, Check, CheckCheck, Bot, User, Loader2, AlertTriangle, FileText } from "lucide-react";
+import { Image as ImageIcon, Paperclip, Send, Check, CheckCheck, Bot, User, Loader2, AlertTriangle, FileText, BadgeCheck, ShieldAlert } from "lucide-react";
 import { MUESTRAS, CLIENTE_DEMO, type Documento } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -19,6 +19,7 @@ interface Mensaje {
   hora: string;
   estado?: "enviado" | "leido";
   doc?: Documento;
+  simulado?: boolean;
   error?: boolean;
 }
 
@@ -50,6 +51,7 @@ const SALUDO_INICIAL: Mensaje[] = [
 ];
 
 export function WhatsAppChat({ onDocumentoProcesado }: { onDocumentoProcesado: () => void }) {
+  const { toast } = useToast();
   const [mensajes, setMensajes] = useState<Mensaje[]>(SALUDO_INICIAL);
   const [procesando, setProcesando] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -143,6 +145,7 @@ export function WhatsAppChat({ onDocumentoProcesado }: { onDocumentoProcesado: (
       if (!res.ok) throw new Error(json.error || "Error de procesamiento");
 
       const doc: Documento = json.documento;
+      const simulado = Boolean(json.simulado);
       await new Promise((r) => setTimeout(r, 600)); // pausa natural
       setMensajes((m) => [
         ...m,
@@ -153,6 +156,7 @@ export function WhatsAppChat({ onDocumentoProcesado }: { onDocumentoProcesado: (
           hora: horaAhora(),
           estado: "leido",
           doc,
+          simulado,
         },
       ]);
       onDocumentoProcesado();
@@ -234,6 +238,13 @@ export function WhatsAppChat({ onDocumentoProcesado }: { onDocumentoProcesado: (
 
               {/* Tarjeta de datos extraídos */}
               {m.doc && <MiniaturaFiscal doc={m.doc} />}
+
+              {m.simulado && (
+                <p className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] leading-snug text-amber-800">
+                  Modo demostración: este despliegue no tiene acceso al motor de IA y la respuesta
+                  es una simulación preconfigurada de la muestra.
+                </p>
+              )}
 
               <p className="mt-1 flex items-center justify-end gap-1 text-[10px] text-gray-500">
                 {m.hora}
@@ -377,6 +388,18 @@ function MiniaturaFiscal({ doc }: { doc: Documento }) {
           <dd className="inline">{doc.ivaDeducible ? "Sí" : "No"}</dd>
         </div>
       </dl>
+      {doc.nifEmisorValido === true && (
+        <p className="mt-1.5 flex items-center gap-1 text-[10px] font-medium text-emerald-700">
+          <BadgeCheck className="h-3 w-3 shrink-0" /> NIF/CIF del emisor verificado (dígito de
+          control determinístico)
+        </p>
+      )}
+      {doc.nifEmisorValido === false && (
+        <p className="mt-1.5 flex items-center gap-1 text-[10px] font-semibold text-red-700">
+          <ShieldAlert className="h-3 w-3 shrink-0" /> NIF/CIF del emisor inválido: detectado por
+          el validador determinístico
+        </p>
+      )}
       {doc.motivoRevision && (
         <p className="mt-1.5 flex items-start gap-1 rounded bg-white/70 p-1.5 text-[10px] leading-snug text-amber-800">
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />

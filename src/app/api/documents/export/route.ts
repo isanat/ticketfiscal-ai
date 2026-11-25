@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
 import { etiquetaCuenta } from "@/lib/fiscal";
+import { listarDocumentos } from "@/lib/store";
 
 export const runtime = "nodejs";
 
@@ -12,16 +12,14 @@ function num(n: number): string {
 export async function GET(req: NextRequest) {
   try {
     const trimestre = req.nextUrl.searchParams.get("trimestre");
-    const docs = await db.documento.findMany({
-      where: trimestre ? { trimestre } : undefined,
-      orderBy: { fechaEmision: "asc" },
-    });
+    const docs = await listarDocumentos(trimestre ? { trimestre } : undefined);
 
     const CABECERA = [
       "Fecha",
       "Nº Factura",
       "Emisor",
       "NIF Emisor",
+      "NIF emisor válido",
       "Cuenta PGC",
       "Descripción cuenta",
       "Base imponible",
@@ -41,6 +39,7 @@ export async function GET(req: NextRequest) {
         d.numeroFactura ?? "",
         `"${(d.emisorNombre ?? "").replace(/"/g, '""')}"`,
         d.emisorNif ?? "",
+        d.nifEmisorValido === true ? "SÍ" : d.nifEmisorValido === false ? "NO" : "",
         d.cuentaPgc ?? "",
         `"${etiquetaCuenta(d.cuentaPgc)}"`,
         num(d.baseImponible),
@@ -61,7 +60,27 @@ export async function GET(req: NextRequest) {
     const totalTotal = docs.reduce((s, d) => s + d.totalFactura, 0);
 
     filas.push("");
-    filas.push(`"TOTALES (${docs.length} documentos)";;;;;;${num(totalBase)};;${num(totalIva)};${num(totalIrpf)};${num(totalTotal)};;;`);
+    // 16 columnas: totales alineados con Base (8), Cuota IVA (10), IRPF (12) y Total (13)
+    filas.push(
+      [
+        `"TOTALES (${docs.length} documentos)"`,
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        num(totalBase),
+        "",
+        num(totalIva),
+        "",
+        num(totalIrpf),
+        num(totalTotal),
+        "",
+        "",
+        "",
+      ].join(";")
+    );
 
     // BOM UTF-8 para que Excel/Sage lo abra correctamente
     const csv = "\uFEFF" + [CABECERA, ...filas].join("\r\n");

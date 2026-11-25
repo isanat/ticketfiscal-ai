@@ -1,7 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { MessageSquareText, Building2, Zap, ShieldCheck, Sparkles } from "lucide-react";
+import {
+  MessageSquareText,
+  Building2,
+  Zap,
+  ShieldCheck,
+  Sparkles,
+  BadgeCheck,
+  Landmark,
+  Network,
+  Lock,
+  CheckCircle2,
+  Clock3,
+} from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { WhatsAppChat } from "@/components/fiscal/whatsapp-chat";
@@ -32,6 +44,9 @@ export default function Home() {
           <div className="hidden items-center gap-2 md:flex">
             <Badge variant="outline" className="gap-1 border-primary/40 bg-secondary text-[11px]">
               <ShieldCheck className="h-3 w-3 text-primary" /> Validación RD 1619/2012
+            </Badge>
+            <Badge variant="outline" className="gap-1 border-primary/40 bg-secondary text-[11px]">
+              <BadgeCheck className="h-3 w-3 text-primary" /> NIF/CIF verificado
             </Badge>
             <Badge variant="outline" className="gap-1 border-primary/40 bg-secondary text-[11px]">
               <Sparkles className="h-3 w-3 text-primary" /> Modelo 303 · PGC
@@ -84,6 +99,75 @@ export default function Home() {
             <GestoriaPanel refresco={refresco} />
           </TabsContent>
         </Tabs>
+
+        {/* Hoja de ruta del producto */}
+        <section aria-labelledby="hoja-ruta" className="mx-auto mt-10 w-full max-w-6xl">
+          <div className="mb-4 text-center">
+            <h2 id="hoja-ruta" className="text-lg font-bold tracking-tight">
+              Hoja de ruta del producto
+            </h2>
+            <p className="mx-auto mt-1 max-w-xl text-sm text-muted-foreground">
+              Lo que ya funciona en esta demo y lo que llega para el piloto con gestorías.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <article className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <BadgeCheck className="h-5 w-5 text-emerald-600" />
+                <Badge className="bg-emerald-600 text-[10px]">Ya activo</Badge>
+              </div>
+              <h3 className="text-sm font-semibold">Validación NIF/CIF determinística</h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Dígito de control verificado en TypeScript antes de aprobar cada documento — sin
+                depender solo de la IA. Próximo: censo VIES/AEAT.
+              </p>
+            </article>
+            <article className="rounded-xl border p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <Network className="h-5 w-5 text-primary" />
+                <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[10px] text-amber-700">
+                  <Clock3 className="mr-1 h-3 w-3" /> Siguiente hito
+                </Badge>
+              </div>
+              <h3 className="text-sm font-semibold">Multi-empresa · PostgreSQL</h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Migración a Supabase/Neon: 1 gestoría → N empresas → N números de WhatsApp
+                autorizados, con login para el asesor.
+              </p>
+            </article>
+            <article className="rounded-xl border p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <Landmark className="h-5 w-5 text-primary" />
+                <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[10px] text-amber-700">
+                  <Clock3 className="mr-1 h-3 w-3" /> En camino
+                </Badge>
+              </div>
+              <h3 className="text-sm font-semibold">Conciliación bancaria</h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                GoCardless Bank Account Data: cruce del extractato real del banco español con los
+                justificantes recibidos por WhatsApp.
+              </p>
+            </article>
+            <article className="rounded-xl border p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <Lock className="h-5 w-5 text-primary" />
+                <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[10px] text-amber-700">
+                  <Clock3 className="mr-1 h-3 w-3" /> En camino
+                </Badge>
+              </div>
+              <h3 className="text-sm font-semibold">RGPD · hosting en la UE</h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Servidores en Frankfurt/París y contrato de Encargado del Tratamiento para
+                procesar NIFs y datos bancarios reales.
+              </p>
+            </article>
+          </div>
+          <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+            Arquitectura ya preparada: la capa de datos está aislada para cambiar SQLite por
+            PostgreSQL sin tocar la lógica fiscal.
+          </p>
+        </section>
       </main>
 
       {/* Pie de página fijo */}
@@ -91,7 +175,8 @@ export default function Home() {
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-1.5 px-4 py-4 text-center sm:flex-row sm:text-left">
           <p className="text-xs text-muted-foreground">
             <span className="font-semibold text-foreground">TicketFiscal AI</span> · Demo piloto
-            para gestorías — integrable con a3, Sage, Holded y WhatsApp Business API.
+            para gestorías — integrable con a3, Sage, Holded y WhatsApp Business API. Datos
+            ficticios de demostración.
           </p>
           <p className="text-[11px] text-muted-foreground">
             Hecho con reglas fiscales españolas · IVA 21/10/4% · PGC 600–629

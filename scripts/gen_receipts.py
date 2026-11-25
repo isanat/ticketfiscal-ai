@@ -160,7 +160,7 @@ def thermal(inner: str) -> str:
 
 TICKET_RESTAURANTE = thermal("""
 <div class="center bold big">BAR - RESTAURANTE<br>EL CRUCE</div>
-<div class="center">C/ Mayor, 23 - 46980 Paterna (Valencia)<br>NIF: B98765432<br>Tel. 961 52 30 14</div>
+<div class="center">C/ Mayor, 23 - 46980 Paterna (Valencia)<br>NIF: B46912382<br>Tel. 961 52 30 14</div>
 <div class="hr"></div>
 <div class="center bold">FACTURA SIMPLIFICADA</div>
 <div class="row"><span>Ticket nº:</span><span>00342</span></div>
@@ -179,7 +179,7 @@ TICKET_RESTAURANTE = thermal("""
 
 TICKET_GASOLINERA = thermal("""
 <div class="center bold big">ESTACIÓN DE SERVICIO<br>LA VÍA, S.L.</div>
-<div class="center">Autovía A-3, km 14 - Salar<br>NIF: B46539127<br>Surtidor 4 - Gasóleo A</div>
+<div class="center">Autovía A-3, km 14 - Salar<br>NIF: B46539128<br>Surtidor 4 - Gasóleo A</div>
 <div class="hr"></div>
 <div class="center bold">FACTURA SIMPLIFICADA</div>
 <div class="row"><span>Ticket nº:</span><span>07891</span></div>

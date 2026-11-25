@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -52,3 +53,17 @@ prompt
 server.log
 # Skills directory
 /skills/
+
+# base de datos local (se regenera con bun run db:push + semilla automática)
+db/*.db
+
+# infraestructura del sandbox (no forma parte del producto)
+/tests/
+/examples/
+/download/
+/mini-services/
+/.zscripts/
+/upload/
+Caddyfile
+demo-final.png
+final-gestoria.png

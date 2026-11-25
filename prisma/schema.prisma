@@ -21,8 +21,10 @@ model Documento {
   ivaDeducible    Boolean  @default(false)
   emisorNombre    String?
   emisorNif       String?
+  nifEmisorValido   Boolean? // validación determinística del dígito de control
   receptorNombre  String?
   receptorNif     String?
+  nifReceptorValido Boolean?
   numeroFactura   String?
   fechaEmision    String? // YYYY-MM-DD
   moneda          String   @default("EUR")

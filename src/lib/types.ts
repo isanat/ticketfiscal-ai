@@ -8,8 +8,10 @@ export interface Documento {
   ivaDeducible: boolean;
   emisorNombre: string | null;
   emisorNif: string | null;
+  nifEmisorValido?: boolean | null;
   receptorNombre: string | null;
   receptorNif: string | null;
+  nifReceptorValido?: boolean | null;
   numeroFactura: string | null;
   fechaEmision: string | null;
   moneda: string;
@@ -47,8 +49,8 @@ export const MUESTRAS: Muestra[] = [
   },
   {
     archivo: "/samples/factura-error.png",
-    titulo: "Factura luz (con error)",
-    descripcion: "Eléctricas del Sur S.A. · descuadre 1,00 €",
+    titulo: "Factura luz (con errores)",
+    descripcion: "Eléctricas del Sur S.A. · descuadre IVA + CIF erróneo",
   },
   {
     archivo: "/samples/ticket-gasolinera.png",
