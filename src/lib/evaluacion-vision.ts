@@ -1,6 +1,6 @@
 // Evaluación de extracción sobre las muestras de public/samples.
 // Gabarito leído de las propias imágenes. Lo usan el script local y el endpoint temporal de evaluación.
-import { extraerConVision, costeEstimadoUsd, type ParteEntrada, type UsoTokens } from "./vision";
+import { extraerConVision, costeEstimadoUsd, proveedorActivo, tarifasProveedor, type ParteEntrada, type Proveedor, type UsoTokens } from "./vision";
 import { FISCAL_SYSTEM_PROMPT, parseExtraccion, validarExtraccion } from "./fiscal";
 import { config } from "./env";
 
@@ -59,7 +59,7 @@ export interface ResultadoEval {
 }
 
 /** Evalúa un caso. `leer` devuelve los bytes del archivo de muestra. Nunca incluye claves en el resultado. */
-export async function evaluarCaso(c: CasoEval, leer: (archivo: string) => Buffer): Promise<ResultadoEval> {
+export async function evaluarCaso(c: CasoEval, leer: (archivo: string) => Buffer, proveedor?: Proveedor): Promise<ResultadoEval> {
   const base64 = leer(c.archivo).toString("base64");
   const partes: ParteEntrada[] = [
     { tipo: "texto", texto: `Analiza este justificante de gasto de la empresa Taller Pérez e Hijos (NIF ${NIF_EMPRESA_EVAL}). Devuelve solo el JSON estricto.` },
@@ -68,7 +68,7 @@ export async function evaluarCaso(c: CasoEval, leer: (archivo: string) => Buffer
   const inicio = Date.now();
   let uso: UsoTokens | undefined;
   try {
-    const raw = await extraerConVision(FISCAL_SYSTEM_PROMPT, partes, { onUso: (u) => (uso = u) });
+    const raw = await extraerConVision(FISCAL_SYSTEM_PROMPT, partes, { onUso: (u) => (uso = u), proveedor });
     const ms = Date.now() - inicio;
     const r = validarExtraccion(parseExtraccion(raw), { nifEmpresa: NIF_EMPRESA_EVAL });
     const e = c.esperado;
@@ -116,7 +116,7 @@ export async function evaluarCaso(c: CasoEval, leer: (archivo: string) => Buffer
 }
 
 export interface InformeEval {
-  proveedor: string | null;
+  proveedor: Proveedor | null;
   modelo?: string;
   resultados: ResultadoEval[];
   resumen: {
@@ -130,11 +130,16 @@ export interface InformeEval {
 }
 
 /** Ejecuta todos los casos y resume. Usa tarifas de entorno si existen. */
-export async function ejecutarEvaluacion(leer: (archivo: string) => Buffer, soloIndice?: number): Promise<InformeEval> {
+export async function ejecutarEvaluacion(
+  leer: (archivo: string) => Buffer,
+  opciones: { soloIndice?: number; proveedor?: Proveedor } = {}
+): Promise<InformeEval> {
   const c = config();
   const resultados: ResultadoEval[] = [];
-  const casos = soloIndice === undefined ? CASOS_EVAL : [CASOS_EVAL[soloIndice]].filter(Boolean);
-  for (const caso of casos) resultados.push(await evaluarCaso(caso, leer));
+  const casos = opciones.soloIndice === undefined ? CASOS_EVAL : [CASOS_EVAL[opciones.soloIndice]].filter(Boolean);
+  for (const caso of casos) resultados.push(await evaluarCaso(caso, leer, opciones.proveedor));
+  const proveedor = opciones.proveedor ?? proveedorActivo(c);
+  const tarifas = proveedor ? tarifasProveedor(proveedor, c) : {};
 
   const campos = resultados.flatMap((r) => Object.values(r.aciertos));
   const aciertos = campos.filter(Boolean).length;
@@ -142,9 +147,10 @@ export async function ejecutarEvaluacion(leer: (archivo: string) => Buffer, solo
     (acc, r) => ({ entrada: acc.entrada + (r.uso?.entrada ?? 0), salida: acc.salida + (r.uso?.salida ?? 0) }),
     { entrada: 0, salida: 0 }
   );
+  const modelo = proveedor === "anthropic" ? c.ANTHROPIC_MODEL : proveedor === "gemini" ? c.GEMINI_MODEL : c.ZAI_MODEL;
   return {
-    proveedor: c.VISION_PROVIDER === "glm" ? "glm" : c.GEMINI_API_KEY ? "gemini" : "glm",
-    modelo: c.GEMINI_API_KEY ? c.GEMINI_MODEL : c.ZAI_MODEL,
+    proveedor,
+    modelo,
     resultados,
     resumen: {
       aciertoPct: campos.length ? Math.round((aciertos / campos.length) * 1000) / 10 : 0,
@@ -152,7 +158,7 @@ export async function ejecutarEvaluacion(leer: (archivo: string) => Buffer, solo
       campos: campos.length,
       latenciaMediaMs: Math.round(resultados.reduce((s, r) => s + r.ms, 0) / resultados.length),
       tokens,
-      costeUsd: costeEstimadoUsd(tokens, c.GEMINI_PRECIO_ENTRADA_USD_M, c.GEMINI_PRECIO_SALIDA_USD_M),
+      costeUsd: costeEstimadoUsd(tokens, tarifas.entrada, tarifas.salida),
     },
   };
 }

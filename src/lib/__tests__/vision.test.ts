@@ -83,3 +83,37 @@ describe("coste", () => {
     expect(costeEstimadoUsd({ entrada: 10, salida: 10 })).toBeNull();
   });
 });
+
+import { construirPeticionAnthropic, extraerRespuestaAnthropic } from "@/lib/vision";
+
+describe("petición Anthropic (Claude)", () => {
+  it("envía imagen como bloque image y PDF como bloque document, con system aparte", () => {
+    const body = construirPeticionAnthropic(SYSTEM, [...PARTES, { tipo: "archivo", mime: "application/pdf", base64: "UERG" }], "claude-haiku-5-5");
+    expect(body.model).toBe("claude-haiku-5-5");
+    expect(body.system).toBe(SYSTEM);
+    expect(body.temperature).toBe(0);
+    const bloques = body.messages[0].content as Array<Record<string, unknown>>;
+    expect(bloques[0]).toEqual({ type: "text", text: "Analiza" });
+    expect(bloques[1]).toEqual({ type: "image", source: { type: "base64", media_type: "image/png", data: "QUJD" } });
+    expect(bloques[2]).toEqual({ type: "document", source: { type: "base64", media_type: "application/pdf", data: "UERG" } });
+  });
+
+  it("extrae el texto de los bloques de texto y los tokens de uso", () => {
+    const r = extraerRespuestaAnthropic({
+      content: [{ type: "text", text: '{"a":' }, { type: "text", text: "1}" }],
+      usage: { input_tokens: 3000, output_tokens: 500 },
+    });
+    expect(r.texto).toBe('{"a":1}');
+    expect(r.uso).toEqual({ entrada: 3000, salida: 500 });
+  });
+
+  it("respuesta sin texto es error definitivo", () => {
+    expect(() => extraerRespuestaAnthropic({ content: [] })).toThrow(/no devolvió/);
+  });
+
+  it("se selecciona cuando es el único proveedor con clave", () => {
+    const base = { VISION_PROVIDER: "auto", ZAI_BASE_URL: undefined, ZAI_API_KEY: undefined, GEMINI_API_KEY: undefined, ANTHROPIC_API_KEY: "a".repeat(20) } as unknown as Config;
+    expect(proveedorActivo(base)).toBe("anthropic");
+    expect(proveedorActivo({ ...base, VISION_PROVIDER: "gemini" } as unknown as Config)).toBeNull();
+  });
+});

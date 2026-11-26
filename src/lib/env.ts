@@ -20,7 +20,12 @@ const esquema = z.object({
   ZAI_API_KEY: z.string().min(1).optional(),
   ZAI_MODEL: z.string().default("glm-5.3-flash"),
   // Proveedor de visión: "auto" usa GLM si hay ZAI_* y si no Gemini si hay GEMINI_API_KEY.
-  VISION_PROVIDER: z.enum(["auto", "glm", "gemini"]).default("auto"),
+  VISION_PROVIDER: z.enum(["auto", "glm", "gemini", "anthropic"]).default("auto"),
+  ANTHROPIC_API_KEY: z.string().min(10).optional(),
+  // Haiku por defecto (más barato); Sonnet solo si el Haiku no alcanza la precisión.
+  ANTHROPIC_MODEL: z.string().default("claude-haiku-5-5"),
+  ANTHROPIC_PRECIO_ENTRADA_USD_M: z.coerce.number().nonnegative().optional(),
+  ANTHROPIC_PRECIO_SALIDA_USD_M: z.coerce.number().nonnegative().optional(),
   GEMINI_API_KEY: z.string().min(10).optional(),
   GEMINI_MODEL: z.string().default("gemini-flash-latest"),
   // Tarifas en USD por millón de tokens (de la tabla oficial vigente). Sin ellas solo se registran tokens.

@@ -6,7 +6,7 @@ import { ejecutarEvaluacion } from "../src/lib/evaluacion-vision";
 
 process.env.STORAGE_POSTGRES_PRISMA_URL ??= "postgresql://evaluacion/no-usada";
 
-ejecutarEvaluacion((archivo) => readFileSync(join("public", "samples", archivo)))
+ejecutarEvaluacion((archivo) => readFileSync(join("public", "samples", archivo)), { proveedor: (process.env.PROVEEDOR as "anthropic" | "gemini" | "glm" | undefined) || undefined })
   .then((informe) => {
     console.log(`Proveedor: ${informe.proveedor} ${informe.modelo ?? ""}\n`);
     for (const r of informe.resultados) {

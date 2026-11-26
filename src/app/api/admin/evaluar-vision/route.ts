@@ -44,7 +44,12 @@ export async function GET(req: NextRequest) {
   const caso = req.nextUrl.searchParams.get("caso");
   const leer = (archivo: string) => readFileSync(path.join(process.cwd(), "public", "samples", archivo));
   try {
-    const informe = await ejecutarEvaluacion(leer, caso === null ? undefined : Number(caso));
+    const prov = req.nextUrl.searchParams.get("proveedor");
+    const proveedor = prov === "anthropic" || prov === "gemini" || prov === "glm" ? prov : undefined;
+    const informe = await ejecutarEvaluacion(leer, {
+      soloIndice: caso === null ? undefined : Number(caso),
+      proveedor,
+    });
     return NextResponse.json(informe, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "error" }, { status: 500 });

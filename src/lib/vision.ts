@@ -1,9 +1,10 @@
-// Motor de visión: interfaz común con dos proveedores.
-//  · glm:    endpoint compatible configurado con ZAI_BASE_URL / ZAI_API_KEY.
-//  · gemini: Gemini API (generateContent) con GEMINI_API_KEY.
-// Ambos: timeout, reintentos solo ante fallos transitorios, respuesta JSON y registro de tokens.
+// Motor de visión: interfaz común con tres proveedores.
+//  · glm:       endpoint compatible configurado con ZAI_BASE_URL / ZAI_API_KEY.
+//  · gemini:    Gemini API (generateContent) con GEMINI_API_KEY.
+//  · anthropic: Claude Messages API con ANTHROPIC_API_KEY (modelo por defecto: claude-haiku-5-5).
+// Todos: timeout, reintentos solo ante fallos transitorios, respuesta JSON y registro de tokens.
 // Desarrollo: si no hay proveedor configurado se intenta el SDK local (nunca en producción).
-import { config } from "./env";
+import { config, type Config } from "./env";
 import { log, mensajeError } from "./logger";
 
 export class MotorVisionNoDisponible extends Error {}
@@ -13,11 +14,18 @@ export type ParteEntrada =
   | { tipo: "texto"; texto: string }
   | { tipo: "archivo"; mime: string; base64: string };
 
-export type Proveedor = "glm" | "gemini";
+export type Proveedor = "glm" | "gemini" | "anthropic";
 
 export interface UsoTokens {
   entrada: number;
   salida: number;
+}
+
+export interface OpcionesVision {
+  /** Callback con los tokens de la llamada (sin contenido del documento). */
+  onUso?: (uso: UsoTokens) => void;
+  /** Fuerza un proveedor concreto (para evaluaciones comparativas). */
+  proveedor?: Proveedor;
 }
 
 const TIMEOUT_MS = 45_000;
@@ -27,7 +35,7 @@ class ErrorTransitorio extends Error {}
 
 const esperar = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Reintenta solo errores transitorios (red, timeout, 408/429/5xx). Los demás fallan al instante. */
+/** Reintenta solo errores transitorios. Los demás fallan al instante. */
 async function conReintentos<T>(proveedor: Proveedor, operacion: () => Promise<T>): Promise<T> {
   let ultimo: unknown = null;
   for (let intento = 1; intento <= INTENTOS; intento++) {
@@ -43,7 +51,7 @@ async function conReintentos<T>(proveedor: Proveedor, operacion: () => Promise<T
   throw new MotorVisionNoDisponible(`${proveedor}: sin respuesta tras ${INTENTOS} intentos`);
 }
 
-/** Traduce el estado HTTP a error transitorio (reintentable) o definitivo. */
+/** Traduce el estado HTTP: transitorio (reintentable) o definitivo. 529 es sobrecarga de Anthropic. */
 function comprobarEstado(res: Response, proveedor: Proveedor): void {
   if (res.ok) return;
   if (res.status >= 500 || res.status === 408 || res.status === 429) {
@@ -54,7 +62,7 @@ function comprobarEstado(res: Response, proveedor: Proveedor): void {
 
 // ------------------------------------------------------------------ GLM
 
-/** Construye el cuerpo OpenAI-compatible con imágenes como data URL. Exportado para tests. */
+/** Cuerpo OpenAI-compatible con imágenes como data URL. Exportado para tests. */
 export function construirPeticionGlm(system: string, partes: ParteEntrada[], modelo: string) {
   const contenido = partes.map((p) => {
     if (p.tipo === "texto") return { type: "text", text: p.texto };
@@ -73,8 +81,7 @@ export function construirPeticionGlm(system: string, partes: ParteEntrada[], mod
   };
 }
 
-async function llamadaGlm(system: string, partes: ParteEntrada[]): Promise<{ texto: string; uso?: UsoTokens }> {
-  const c = config();
+async function llamadaGlm(system: string, partes: ParteEntrada[], c: Config): Promise<{ texto: string; uso?: UsoTokens }> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${c.ZAI_API_KEY}`,
@@ -153,8 +160,7 @@ export function extraerRespuestaGemini(json: RespuestaGemini): { texto: string; 
   return { texto, uso };
 }
 
-async function llamadaGemini(system: string, partes: ParteEntrada[]): Promise<{ texto: string; uso?: UsoTokens }> {
-  const c = config();
+async function llamadaGemini(system: string, partes: ParteEntrada[], c: Config): Promise<{ texto: string; uso?: UsoTokens }> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(c.GEMINI_MODEL)}:generateContent`;
   const body = JSON.stringify(construirPeticionGemini(system, partes));
 
@@ -170,16 +176,79 @@ async function llamadaGemini(system: string, partes: ParteEntrada[]): Promise<{ 
   });
 }
 
+// ------------------------------------------------------------------ Anthropic (Claude)
+
+/** Cuerpo de Messages API. Imágenes como bloque image; PDF como bloque document. Exportado para tests. */
+export function construirPeticionAnthropic(system: string, partes: ParteEntrada[], modelo: string) {
+  return {
+    model: modelo,
+    max_tokens: 2048,
+    temperature: 0,
+    system,
+    messages: [
+      {
+        role: "user",
+        content: partes.map((p) => {
+          if (p.tipo === "texto") return { type: "text", text: p.texto };
+          const source = { type: "base64", media_type: p.mime, data: p.base64 };
+          return p.mime === "application/pdf" ? { type: "document", source } : { type: "image", source };
+        }),
+      },
+    ],
+  };
+}
+
+interface RespuestaAnthropic {
+  content?: Array<{ type: string; text?: string }>;
+  stop_reason?: string;
+  usage?: { input_tokens?: number; output_tokens?: number };
+}
+
+/** Extrae texto y tokens de la respuesta de Claude. Exportado para tests. */
+export function extraerRespuestaAnthropic(json: RespuestaAnthropic): { texto: string; uso?: UsoTokens } {
+  const texto = (json.content ?? [])
+    .filter((b) => b.type === "text")
+    .map((b) => b.text ?? "")
+    .join("");
+  if (!texto) throw new MotorVisionNoDisponible("anthropic no devolvió contenido");
+  const uso = json.usage
+    ? { entrada: json.usage.input_tokens ?? 0, salida: json.usage.output_tokens ?? 0 }
+    : undefined;
+  return { texto, uso };
+}
+
+async function llamadaAnthropic(system: string, partes: ParteEntrada[], c: Config): Promise<{ texto: string; uso?: UsoTokens }> {
+  const body = JSON.stringify(construirPeticionAnthropic(system, partes, c.ANTHROPIC_MODEL));
+
+  return conReintentos("anthropic", async () => {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": c.ANTHROPIC_API_KEY ?? "",
+        "anthropic-version": "2023-06-01",
+      },
+      body,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    comprobarEstado(res, "anthropic");
+    return extraerRespuestaAnthropic((await res.json()) as RespuestaAnthropic);
+  });
+}
+
 // ------------------------------------------------------------------ Selección y coste
 
 /** Proveedor activo según VISION_PROVIDER y las credenciales presentes. */
-export function proveedorActivo(c = config()): Proveedor | null {
+export function proveedorActivo(c: Config = config()): Proveedor | null {
   const glm = Boolean(c.ZAI_BASE_URL && c.ZAI_API_KEY);
   const gemini = Boolean(c.GEMINI_API_KEY);
+  const anthropic = Boolean(c.ANTHROPIC_API_KEY);
   if (c.VISION_PROVIDER === "glm") return glm ? "glm" : null;
   if (c.VISION_PROVIDER === "gemini") return gemini ? "gemini" : null;
+  if (c.VISION_PROVIDER === "anthropic") return anthropic ? "anthropic" : null;
   if (glm) return "glm";
   if (gemini) return "gemini";
+  if (anthropic) return "anthropic";
   return null;
 }
 
@@ -187,6 +256,13 @@ export function proveedorActivo(c = config()): Proveedor | null {
 export function costeEstimadoUsd(uso: UsoTokens, precioEntrada?: number, precioSalida?: number): number | null {
   if (precioEntrada === undefined || precioSalida === undefined) return null;
   return (uso.entrada * precioEntrada + uso.salida * precioSalida) / 1_000_000;
+}
+
+/** Tarifas configuradas (USD por millón de tokens) del proveedor indicado. */
+export function tarifasProveedor(p: Proveedor, c: Config = config()): { entrada?: number; salida?: number } {
+  if (p === "gemini") return { entrada: c.GEMINI_PRECIO_ENTRADA_USD_M, salida: c.GEMINI_PRECIO_SALIDA_USD_M };
+  if (p === "anthropic") return { entrada: c.ANTHROPIC_PRECIO_ENTRADA_USD_M, salida: c.ANTHROPIC_PRECIO_SALIDA_USD_M };
+  return {};
 }
 
 /** Solo desarrollo local: SDK con su fichero de configuración. */
@@ -207,25 +283,24 @@ async function llamadaSdkLocal(system: string, partes: ParteEntrada[]): Promise<
 }
 
 /**
- * Ejecuta la extracción con el proveedor activo y registra tokens y coste estimado
- * (sin contenido del documento). Devuelve el texto de la respuesta del modelo.
+ * Ejecuta la extracción con el proveedor activo (o el indicado) y registra tokens y coste
+ * estimado (sin contenido del documento). Devuelve el texto de la respuesta del modelo.
  */
-export async function extraerConVision(
-  system: string,
-  partes: ParteEntrada[],
-  opciones: { onUso?: (uso: UsoTokens) => void } = {}
-): Promise<string> {
+export async function extraerConVision(system: string, partes: ParteEntrada[], opciones: OpcionesVision = {}): Promise<string> {
   const c = config();
-  const proveedor = proveedorActivo(c);
+  const proveedor = opciones.proveedor ?? proveedorActivo(c);
 
   if (proveedor) {
-    const r = proveedor === "gemini" ? await llamadaGemini(system, partes) : await llamadaGlm(system, partes);
+    const r =
+      proveedor === "anthropic"
+        ? await llamadaAnthropic(system, partes, c)
+        : proveedor === "gemini"
+          ? await llamadaGemini(system, partes, c)
+          : await llamadaGlm(system, partes, c);
     if (r.uso) {
       opciones.onUso?.(r.uso);
-      const coste =
-        proveedor === "gemini"
-          ? costeEstimadoUsd(r.uso, c.GEMINI_PRECIO_ENTRADA_USD_M, c.GEMINI_PRECIO_SALIDA_USD_M)
-          : null;
+      const t = tarifasProveedor(proveedor, c);
+      const coste = costeEstimadoUsd(r.uso, t.entrada, t.salida);
       log("info", "vision.uso", { proveedor, entrada: r.uso.entrada, salida: r.uso.salida, costeUsd: coste });
     }
     return r.texto;
@@ -238,5 +313,7 @@ export async function extraerConVision(
       log("warn", "vision.sdk_local_no_disponible", { motivo: mensajeError(e) });
     }
   }
-  throw new MotorVisionNoDisponible("Motor de visión no configurado (GEMINI_API_KEY o ZAI_BASE_URL/ZAI_API_KEY)");
+  throw new MotorVisionNoDisponible(
+    "Motor de visión no configurado (ANTHROPIC_API_KEY, GEMINI_API_KEY o ZAI_BASE_URL/ZAI_API_KEY)"
+  );
 }
