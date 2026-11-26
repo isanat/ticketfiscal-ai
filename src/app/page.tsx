@@ -65,7 +65,9 @@ export default function Home() {
       {/* Contenido */}
       <main className="flex-1 px-4 py-6">
         <Tabs value={tab} onValueChange={cambiarTab} className="w-full">
-          <div className="mb-5 flex justify-center">
+          {/* Barra de pestañas fija bajo la cabecera: nunca queda tapada
+              al hacer scroll, siempre visible y clicable */}
+          <div className="sticky top-16 z-30 -mx-4 mb-5 flex justify-center border-b bg-background/95 px-4 py-2 backdrop-blur">
             <TabsList className="h-auto w-full max-w-full flex-wrap gap-1 rounded-xl p-1 sm:h-11 sm:w-fit">
               <TabsTrigger
                 value="whatsapp"
