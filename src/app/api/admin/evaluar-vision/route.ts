@@ -5,6 +5,7 @@ import path from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { ejecutarEvaluacion } from "@/lib/evaluacion-vision";
+import { config } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,6 +63,8 @@ export async function GET(req: NextRequest) {
   const caso = req.nextUrl.searchParams.get("caso");
   const leer = (archivo: string) => readFileSync(path.join(process.cwd(), "public", "samples", archivo));
   try {
+    const m = req.nextUrl.searchParams.get("modelo");
+    if (m && /^gemini-[a-z0-9.-]{1,40}$/.test(m)) config().GEMINI_MODEL = m;
     const prov = req.nextUrl.searchParams.get("proveedor");
     const proveedor = prov === "anthropic" || prov === "gemini" || prov === "glm" ? prov : undefined;
     const informe = await ejecutarEvaluacion(leer, {
