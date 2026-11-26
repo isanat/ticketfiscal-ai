@@ -8,36 +8,76 @@ import {
 } from "@/lib/fiscal";
 import { validarNifsDocumento } from "@/lib/nif";
 import { SEMILLA_DOCUMENTOS } from "@/lib/seed";
-import { crearDocumento, eliminarDocumento, listarDocumentos, modoDatos, type EntradaDocumento } from "@/lib/store";
+import {
+  crearDocumento,
+  eliminarDocumento,
+  listarDocumentos,
+  modoDatos,
+  obtenerEmpresa,
+  type EntradaDocumento,
+} from "@/lib/store";
+import type { Documento } from "@/lib/types";
 import { visionChat } from "@/lib/zai-server";
+import { requiereRol, usuarioDesdeRequest } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 interface Body {
-  imageBase64?: string; // data URL completa (data:image/png;base64,...) o base64 puro
+  imageBase64?: string; // data URL completa o base64 puro
   mimeType?: string;
   imagenNombre?: string;
-  clienteNombre?: string;
-  clienteNif?: string;
 }
 
 /**
- * Modo demostración: si el despliegue no tiene acceso al motor de IA
- * (p. ej. Vercel sin credenciales) y el usuario reenvía una de las muestras
- * conocidas, se devuelve la extracción preconfigurada, claramente etiquetada.
+ * Modo demostración: sin motor de IA (despliegues serverless sin credenciales)
+ * y con una muestra conocida, se devuelve la extracción preconfigurada.
  */
-function extraccionDemo(imagenNombre?: string): EntradaDocumento | null {
+function extraccionDemo(
+  imagenNombre: string | undefined,
+  empresaId: string
+): EntradaDocumento | null {
   if (!imagenNombre) return null;
-  const doc = SEMILLA_DOCUMENTOS.find((d) => d.imagenNombre === imagenNombre);
+  const doc = SEMILLA_DOCUMENTOS.find(
+    (d) => d.imagenNombre === imagenNombre && d.empresaId === empresaId
+  );
   if (!doc) return null;
   const { id: _id, createdAt: _createdAt, trimestre: _trimestre, ...entrada } = doc;
   return entrada;
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const documentos = await listarDocumentos();
+    const sesion = await usuarioDesdeRequest(req);
+    if (!sesion) {
+      return NextResponse.json({ error: "Sin sesión activa" }, { status: 401 });
+    }
+
+    const trimestre = req.nextUrl.searchParams.get("trimestre");
+    const empresaId = req.nextUrl.searchParams.get("empresaId");
+
+    if (sesion.usuario.rol === "GESTOR") {
+      const gestoriaId = sesion.usuario.gestoria?.id;
+      if (!gestoriaId) {
+        return NextResponse.json({ error: "Cuenta sin gestoría asociada" }, { status: 400 });
+      }
+      const documentos = await listarDocumentos({
+        gestoriaId,
+        empresaId: empresaId ?? undefined,
+        trimestre: trimestre ?? undefined,
+      });
+      return NextResponse.json({ documentos, modo: modoDatos() });
+    }
+
+    // CLIENTE: solo los documentos de su empresa
+    const miEmpresaId = sesion.usuario.empresa?.id;
+    if (!miEmpresaId) {
+      return NextResponse.json({ error: "Cuenta sin empresa asociada" }, { status: 400 });
+    }
+    const documentos = await listarDocumentos({
+      empresaId: miEmpresaId,
+      trimestre: trimestre ?? undefined,
+    });
     return NextResponse.json({ documentos, modo: modoDatos() });
   } catch (error) {
     console.error("GET /api/documents error:", error);
@@ -47,6 +87,29 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const sesion = await usuarioDesdeRequest(req);
+    const cliente = requiereRol(sesion, "CLIENTE");
+    if ("error" in cliente) {
+      return cliente.error.status === 403
+        ? NextResponse.json(
+            {
+              error:
+                "Los justificantes llegan por el WhatsApp de cada empresa. Entre con la cuenta de cliente para reenviar uno.",
+            },
+            { status: 403 }
+          )
+        : cliente.error;
+    }
+
+    const empresaId = cliente.usuario.empresa?.id;
+    if (!empresaId) {
+      return NextResponse.json({ error: "Cuenta sin empresa asociada" }, { status: 400 });
+    }
+    const empresa = await obtenerEmpresa(empresaId);
+    if (!empresa) {
+      return NextResponse.json({ error: "No se encontró la empresa" }, { status: 400 });
+    }
+
     const body = (await req.json()) as Body;
     if (!body.imageBase64) {
       return NextResponse.json({ error: "Falta la imagen del justificante" }, { status: 400 });
@@ -64,8 +127,8 @@ export async function POST(req: NextRequest) {
       ? { type: "file_url", file_url: { url: dataUrl } }
       : { type: "image_url", image_url: { url: dataUrl } };
 
-    const clienteNombre = body.clienteNombre || "Juan Pérez García";
-    const clienteNif = body.clienteNif || "12345678Z";
+    const clienteNombre = cliente.usuario.nombre;
+    const clienteNif = empresa.nif;
 
     // Llamada al motor de visión con reintento único
     let raw = "";
@@ -75,7 +138,7 @@ export async function POST(req: NextRequest) {
         raw = await visionChat(FISCAL_SYSTEM_PROMPT, [
           {
             type: "text",
-            text: `Analiza este justificante de gasto enviado por WhatsApp por el autónomo ${clienteNombre} (NIF ${clienteNif}). Devuelve el JSON estricto.`,
+            text: `Analiza este justificante de gasto enviado por WhatsApp por ${clienteNombre}, de la empresa ${empresa.nombre} (NIF ${clienteNif}). Devuelve el JSON estricto.`,
           },
           mediaItem,
         ]);
@@ -85,9 +148,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Modo demostración (despliegue sin motor IA): muestra conocida → respuesta simulada
+    // Modo demostración (sin motor IA): muestra conocida → respuesta simulada
     if (!raw) {
-      const demo = extraccionDemo(body.imagenNombre);
+      const demo = extraccionDemo(body.imagenNombre, empresaId);
       if (demo) {
         const doc = await crearDocumento(demo);
         return NextResponse.json({ documento: doc, avisos: [], simulado: true });
@@ -118,8 +181,7 @@ export async function POST(req: NextRequest) {
 
     const linea = ext.desglose_impuestos[0];
     const doc = await crearDocumento({
-      clienteNombre,
-      clienteNif,
+      empresaId,
       estado,
       tipoDocumento: ext.tipo_documento,
       ivaDeducible: Boolean(ext.iva_deducible),
@@ -146,7 +208,8 @@ export async function POST(req: NextRequest) {
       trimestre: trimestreDe(ext.datos_factura?.fecha_emision ?? null),
     } satisfies EntradaDocumento);
 
-    return NextResponse.json({ documento: doc, avisos });
+    const documento: Documento = doc;
+    return NextResponse.json({ documento, avisos });
   } catch (error) {
     console.error("POST /api/documents error:", error);
     const msg = error instanceof Error ? error.message : "Error desconocido";
@@ -159,6 +222,12 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const sesion = await usuarioDesdeRequest(req);
+    // Solo la gestoría puede retirar documentos del lote (integridad fiscal:
+    // el cliente envía, pero no borra).
+    const gestor = requiereRol(sesion, "GESTOR");
+    if ("error" in gestor) return gestor.error;
+
     const id = req.nextUrl.searchParams.get("id");
     await eliminarDocumento(id);
     return NextResponse.json({ ok: true, deleted: id ?? "all" });

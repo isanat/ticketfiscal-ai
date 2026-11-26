@@ -1,5 +1,6 @@
 // Prisma schema — TicketFiscal AI
-// Documentos fiscales extraídos de tickets/facturas vía WhatsApp
+// Arquitectura multi-tenant: 1 Gestoría → N Empresas → N justificantes.
+// Usuarios con rol GESTOR (pertenecen a una gestoría) o CLIENTE (pertenecen a una empresa).
 
 generator client {
   provider = "prisma-client-js"
@@ -10,40 +11,86 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Gestoria {
+  id        String    @id @default(cuid())
+  nombre    String
+  cif       String?
+  ciudad    String?
+  createdAt DateTime  @default(now())
+  usuarios  Usuario[]
+  empresas  Empresa[]
+}
+
+model Usuario {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  nombre       String
+  rol          String // GESTOR | CLIENTE
+  gestoriaId   String?
+  gestoria     Gestoria? @relation(fields: [gestoriaId], references: [id])
+  empresaId    String?
+  empresa      Empresa?  @relation(fields: [empresaId], references: [id])
+  createdAt    DateTime  @default(now())
+  sesiones     Sesion[]
+}
+
+model Empresa {
+  id         String      @id @default(cuid())
+  nombre     String
+  nif        String
+  direccion  String?
+  ciudad     String?
+  whatsapp   String?
+  gestoriaId String?
+  gestoria   Gestoria?   @relation(fields: [gestoriaId], references: [id])
+  usuarios   Usuario[]
+  documentos Documento[]
+  createdAt  DateTime    @default(now())
+}
+
 model Documento {
-  id              String   @id @default(cuid())
-  clienteNombre   String   @default("Juan Pérez García")
-  clienteNif      String   @default("12345678Z")
+  id            String   @id @default(cuid())
+  empresaId     String
+  empresa       Empresa  @relation(fields: [empresaId], references: [id])
 
   // Resultado de la extracción IA
-  estado          String // VALIDO | REQUIERE_REVISION | ILEGIBLE
-  tipoDocumento   String // FACTURA_COMPLETA | FACTURA_SIMPLIFICADA | NO_VALIDO
-  ivaDeducible    Boolean  @default(false)
-  emisorNombre    String?
-  emisorNif       String?
-  nifEmisorValido   Boolean? // validación determinística del dígito de control
-  receptorNombre  String?
-  receptorNif     String?
+  estado        String // VALIDO | REQUIERE_REVISION | ILEGIBLE
+  tipoDocumento String // FACTURA_COMPLETA | FACTURA_SIMPLIFICADA | NO_VALIDO
+  ivaDeducible  Boolean  @default(false)
+  emisorNombre  String?
+  emisorNif     String?
+  nifEmisorValido Boolean?
+  receptorNombre String?
+  receptorNif   String?
   nifReceptorValido Boolean?
-  numeroFactura   String?
-  fechaEmision    String? // YYYY-MM-DD
-  moneda          String   @default("EUR")
+  numeroFactura String?
+  fechaEmision  String? // YYYY-MM-DD (fecha de devengo)
+  moneda        String   @default("EUR")
 
   // Impuestos (primera línea del desglose)
-  baseImponible   Float    @default(0)
-  porcentajeIva   Float    @default(0)
-  cuotaIva        Float    @default(0)
-  irpfPorcentaje  Float    @default(0)
-  irpfImporte     Float    @default(0)
-  totalFactura    Float    @default(0)
+  baseImponible Float    @default(0)
+  porcentajeIva Float    @default(0)
+  cuotaIva      Float    @default(0)
+  irpfPorcentaje Float   @default(0)
+  irpfImporte   Float    @default(0)
+  totalFactura  Float    @default(0)
 
-  cuentaPgc       String?
-  confianza       Float    @default(0)
-  motivoRevision  String?
+  cuentaPgc     String?
+  confianza     Float    @default(0)
+  motivoRevision String?
   mensajeWhatsapp String?
 
-  // Metadatos del demo
-  imagenNombre    String? // nombre del archivo de muestra o "subida propia"
-  trimestre       String? // 1T2025 ... 4T2025
-  createdAt       DateTime @default(now())
+  // Metadatos
+  imagenNombre  String?
+  trimestre     String? // 1T2026 ... 4T2026 (por fecha de devengo)
+  createdAt     DateTime @default(now())
+}
+
+model Sesion {
+  id        String   @id
+  usuarioId String
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id])
+  creadoEn  DateTime @default(now())
+  expiraEn  DateTime
 }

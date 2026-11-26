@@ -1,8 +1,38 @@
-// Tipos compartidos frontend ↔ backend
+// Tipos compartidos frontend ↔ backend (multi-tenant)
+
+export type Rol = "GESTOR" | "CLIENTE";
+
+/** Lo que ve el cliente de su propia sesión (nunca el hash). */
+export interface UsuarioSesion {
+  id: string;
+  nombre: string;
+  email: string;
+  rol: Rol;
+  gestoria?: { id: string; nombre: string };
+  empresa?: { id: string; nombre: string; nif: string; ciudad?: string | null };
+}
+
+export interface Empresa {
+  id: string;
+  nombre: string;
+  nif: string;
+  direccion: string | null;
+  ciudad: string | null;
+  whatsapp: string | null;
+  gestoriaId: string | null;
+  createdAt: string;
+}
+
+export interface EmpresaResumen extends Empresa {
+  documentos: number;
+  pendientes: number;
+  ivaDeducible: number;
+  ultimoDocumento: string | null;
+}
+
 export interface Documento {
   id: string;
-  clienteNombre: string;
-  clienteNif: string;
+  empresaId: string;
   estado: "VALIDO" | "REQUIERE_REVISION" | "ILEGIBLE" | string;
   tipoDocumento: "FACTURA_COMPLETA" | "FACTURA_SIMPLIFICADA" | "NO_VALIDO" | string;
   ivaDeducible: boolean;
@@ -59,8 +89,14 @@ export const MUESTRAS: Muestra[] = [
   },
 ];
 
-export const CLIENTE_DEMO = {
-  nombre: "Juan Pérez García",
-  nif: "12345678Z",
-  negocio: "Taller mecánico · Autónomo",
-};
+export interface RespuestaNifLookup {
+  nif: string;
+  formatoValido: boolean;
+  motivo: string | null;
+  vies: {
+    consultable: boolean;
+    valido: boolean | null;
+    nombre: string | null;
+    direccion: string | null;
+  };
+}
