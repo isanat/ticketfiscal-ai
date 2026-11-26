@@ -1,15 +1,18 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { LandingView } from "@/components/landing/landing-view";
 import { AuthView } from "@/components/auth/auth-view";
 import { GestorPortal } from "@/components/fiscal/gestor-portal";
 import { ClientePortal } from "@/components/fiscal/cliente-portal";
+import { BannerSoporte, GestoriaNoActiva } from "@/components/auth/estado-cuenta";
 import type { UsuarioSesion } from "@/lib/types";
 
 type Vista = "cargando" | "landing" | "auth" | "app";
 
 export default function Home() {
+  const router = useRouter();
   const [vista, setVista] = useState<Vista>("cargando");
   const [usuario, setUsuario] = useState<UsuarioSesion | null>(null);
   const [modoAuth, setModoAuth] = useState<"entrar" | "registro">("entrar");
@@ -66,6 +69,15 @@ export default function Home() {
     window.scrollTo({ top: 0 });
   }, []);
 
+  // Termina la sesión de soporte y vuelve al panel de administración.
+  const salirSoporte = useCallback(async () => {
+    try {
+      await fetch("/api/soporte/salir", { method: "POST" });
+    } finally {
+      router.push("/admin");
+    }
+  }, [router]);
+
   if (vista === "cargando") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -95,10 +107,21 @@ export default function Home() {
   }
 
   if (vista === "app" && usuario) {
-    if (usuario.rol === "GESTOR") {
-      return <GestorPortal usuario={usuario} onLogout={salir} />;
+    if (usuario.rol === "GESTOR" && usuario.gestoria?.estado !== "ACTIVA") {
+      return <GestoriaNoActiva usuario={usuario} onLogout={salir} />;
     }
-    return <ClientePortal usuario={usuario} onLogout={salir} />;
+    const portal =
+      usuario.rol === "GESTOR" ? (
+        <GestorPortal usuario={usuario} onLogout={salir} />
+      ) : (
+        <ClientePortal usuario={usuario} onLogout={salir} />
+      );
+    return (
+      <>
+        {usuario.soporte && <BannerSoporte onSalir={salirSoporte} />}
+        {portal}
+      </>
+    );
   }
 
   return (
