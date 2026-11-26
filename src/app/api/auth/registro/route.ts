@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fijarCookieSesion } from "@/lib/auth";
+import { crearSesionFirmada, fijarCookieSesion } from "@/lib/auth";
 import { hashPassword } from "@/lib/hash";
 import { validarIdentificadorFiscal } from "@/lib/nif";
 import {
   contextoUsuario,
   crearEmpresa,
   crearGestoria,
-  crearSesion,
   crearUsuario,
   findUsuarioPorEmail,
 } from "@/lib/store";
@@ -110,7 +109,7 @@ export async function POST(req: NextRequest) {
     }
 
     const contexto = await contextoUsuario(usuarioId);
-    const { token, expiraEn } = await crearSesion(usuarioId);
+    const { token, expiraEn } = crearSesionFirmada(usuarioId);
 
     const res = NextResponse.json({ usuario: contexto }, { status: 201 });
     fijarCookieSesion(res, token, expiraEn);

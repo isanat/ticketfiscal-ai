@@ -32,7 +32,6 @@ model Usuario {
   empresaId    String?
   empresa      Empresa?  @relation(fields: [empresaId], references: [id])
   createdAt    DateTime  @default(now())
-  sesiones     Sesion[]
 }
 
 model Empresa {
@@ -85,12 +84,4 @@ model Documento {
   imagenNombre  String?
   trimestre     String? // 1T2026 ... 4T2026 (por fecha de devengo)
   createdAt     DateTime @default(now())
-}
-
-model Sesion {
-  id        String   @id
-  usuarioId String
-  usuario   Usuario  @relation(fields: [usuarioId], references: [id])
-  creadoEn  DateTime @default(now())
-  expiraEn  DateTime
 }

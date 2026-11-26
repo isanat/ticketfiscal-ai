@@ -1,12 +1,20 @@
 // TicketFiscal AI — Sesiones con cookie httpOnly.
-// El token vive en la tabla Sesion (o en memoria); la cookie solo transporta
-// el token opaco, nunca datos del usuario.
+// El token es opaco para el navegador pero va FIRMADO (HMAC-SHA256), de modo
+// que cualquier instancia serverless puede validarlo sin estado compartido.
 
 import { NextRequest, NextResponse } from "next/server";
-import { contextoUsuario, leerSesion } from "./store";
+import { firmarToken, nuevaExpiracionSesion, verificarToken } from "./hash";
+import { contextoUsuario } from "./store";
 import type { Rol, UsuarioSesion } from "./types";
 
 export const COOKIE_SESION = "tf_sesion";
+
+/** Emite un token firmado para el usuario. Stateless: no requiere base de datos. */
+export function crearSesionFirmada(usuarioId: string): { token: string; expiraEn: Date } {
+  const expiraEn = nuevaExpiracionSesion();
+  const token = firmarToken(usuarioId, expiraEn.getTime());
+  return { token, expiraEn };
+}
 
 export function fijarCookieSesion(res: NextResponse, token: string, expiraEn: Date): void {
   res.cookies.set({
@@ -37,7 +45,7 @@ export async function usuarioDesdeRequest(
 ): Promise<{ usuario: UsuarioSesion; token: string } | null> {
   const token = req.cookies.get(COOKIE_SESION)?.value;
   if (!token) return null;
-  const usuarioId = await leerSesion(token);
+  const usuarioId = verificarToken(token);
   if (!usuarioId) return null;
   const usuario = await contextoUsuario(usuarioId);
   if (!usuario) return null;

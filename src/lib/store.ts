@@ -32,13 +32,6 @@ interface UsuarioRegistro {
   createdAt: Date;
 }
 
-interface SesionRegistro {
-  id: string; // token
-  usuarioId: string;
-  creadoEn: Date;
-  expiraEn: Date;
-}
-
 const DIAS_SESION = 30;
 
 // ------------------------------------------------------------------ Memoria
@@ -48,7 +41,6 @@ interface EstadoMemoria {
   usuarios: UsuarioRegistro[];
   empresas: Empresa[];
   documentos: Documento[];
-  sesiones: SesionRegistro[];
 }
 
 const globalMem = globalThis as unknown as {
@@ -72,7 +64,6 @@ function memoria(): EstadoMemoria {
       })),
       empresas: SEMILLA_EMPRESAS.map((e) => ({ ...e, createdAt: "2026-01-05T09:00:00.000Z" })),
       documentos: SEMILLA_DOCUMENTOS.map((d) => ({ ...d, createdAt: createdAtDe(d) })),
-      sesiones: [],
     };
   }
   return globalMem.__tfMemoria;
@@ -271,61 +262,6 @@ export async function contextoUsuario(usuarioId: string): Promise<UsuarioSesion 
   }
 
   return construir(memoria().usuarios.find((u) => u.id === usuarioId) ?? null);
-}
-
-// ------------------------------------------------------------------ Sesiones
-
-export async function crearSesion(usuarioId: string): Promise<{ token: string; expiraEn: Date }> {
-  const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
-  const expiraEn = new Date(Date.now() + DIAS_SESION * 24 * 60 * 60 * 1000);
-
-  const ok = await conPrisma(async (db) => {
-    await db.sesion.create({
-      data: { id: token, usuarioId, expiraEn },
-    });
-    return true;
-  });
-  if (ok !== null) return { token, expiraEn };
-
-  memoria().sesiones.push({
-    id: token,
-    usuarioId,
-    creadoEn: new Date(),
-    expiraEn,
-  });
-  return { token, expiraEn };
-}
-
-export async function leerSesion(token: string): Promise<string | null> {
-  const ahora = new Date();
-  const fila = await conPrisma(async (db) =>
-    db.sesion.findUnique({ where: { id: token } })
-  );
-  if (fila !== null) {
-    if (fila.expiraEn <= ahora) {
-      await db.sesion.delete({ where: { id: token } }).catch(() => undefined);
-      return null;
-    }
-    return fila.usuarioId;
-  }
-
-  const m = memoria();
-  const idx = m.sesiones.findIndex((s) => s.id === token);
-  if (idx === -1) return null;
-  if (m.sesiones[idx].expiraEn <= ahora) {
-    m.sesiones.splice(idx, 1);
-    return null;
-  }
-  return m.sesiones[idx].usuarioId;
-}
-
-export async function borrarSesion(token: string): Promise<void> {
-  await conPrisma(async (db) => {
-    await db.sesion.deleteMany({ where: { id: token } });
-    return true;
-  });
-  const m = memoria();
-  m.sesiones = m.sesiones.filter((s) => s.id !== token);
 }
 
 // ------------------------------------------------------------------ Empresas
