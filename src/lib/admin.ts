@@ -329,6 +329,7 @@ export function estadoIntegraciones() {
     { clave: "glm", nombre: "GLM (ZAI)", configurada: hay(c.ZAI_BASE_URL, c.ZAI_API_KEY), detalle: `Modelo: ${c.ZAI_MODEL}` },
     { clave: "whatsapp", nombre: "WhatsApp Cloud API", configurada: hay(c.WHATSAPP_VERIFY_TOKEN, c.WHATSAPP_APP_SECRET, c.WHATSAPP_ACCESS_TOKEN, c.WHATSAPP_PHONE_NUMBER_ID), detalle: "Verify token, App Secret, token de acceso e ID de número" },
     { clave: "email", nombre: "E-mail (Resend)", configurada: hay(c.RESEND_API_KEY, c.EMAIL_REMITENTE), detalle: c.EMAIL_2FA_ACTIVO ? "Código por e-mail ACTIVO" : "Código por e-mail desactivado (falta dominio verificado)" },
+    { clave: "gocardless", nombre: "Open Banking (GoCardless)", configurada: hay(c.GOCARDLESS_SECRET_ID, c.GOCARDLESS_SECRET_KEY), detalle: "Preparado, sin verificar con el servicio real. La importación CSV/Norma 43 no lo necesita." },
     { clave: "admin_cifrado", nombre: "Clave de cifrado del administrador", configurada: hay(c.ADMIN_ENCRYPTION_KEY), detalle: "ADMIN_ENCRYPTION_KEY" },
   ];
 }

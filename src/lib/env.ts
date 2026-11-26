@@ -54,6 +54,9 @@ const esquema = z.object({
   RESEND_API_KEY: z.string().min(10).optional(),
   /** Remitente verificado, p. ej. "TicketFiscal AI <seguridad@su-dominio.es>". */
   EMAIL_REMITENTE: z.string().min(5).optional(),
+  // Open Banking (GoCardless Bank Account Data). Preparado y sin verificar: ver src/lib/banca/gocardless.ts.
+  GOCARDLESS_SECRET_ID: z.string().min(8).optional(),
+  GOCARDLESS_SECRET_KEY: z.string().min(8).optional(),
   // Límite diario de extracciones IA por empresa (control de coste).
   LIMITE_IA_DIARIO_EMPRESA: z.coerce.number().int().positive().default(50),
 });

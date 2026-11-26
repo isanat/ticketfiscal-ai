@@ -23,7 +23,7 @@ function idDe(fecha: string, cent: number, desc: string, ocurrencia: number): st
 }
 
 /** Asigna ids estables; dos movimientos idénticos el mismo día reciben ocurrencias distintas. */
-function conIds(items: Array<Omit<MovimientoLeido, "idExterno">>): MovimientoLeido[] {
+export function asignarIdsEstables(items: Array<Omit<MovimientoLeido, "idExterno">>): MovimientoLeido[] {
   const vistos = new Map<string, number>();
   return items.map((m) => {
     const clave = `${m.fecha}|${m.importeCent}|${m.descripcion}`;
@@ -144,7 +144,7 @@ export function parseCsvBanco(texto: string): ResultadoLectura {
     items.push({ fecha, importeCent: cent, descripcion: (iDesc > -1 ? c[iDesc] : "").slice(0, 300) });
     if (items.length >= MAX_MOVIMIENTOS) break;
   }
-  return { movimientos: conIds(items), ignoradas };
+  return { movimientos: asignarIdsEstables(items), ignoradas };
 }
 
 // ------------------------------------------------------------------ Norma 43 (AEB)
@@ -180,5 +180,5 @@ export function parseNorma43(texto: string): ResultadoLectura {
     }
     if (items.length >= MAX_MOVIMIENTOS) break;
   }
-  return { movimientos: conIds(items), ignoradas };
+  return { movimientos: asignarIdsEstables(items), ignoradas };
 }
