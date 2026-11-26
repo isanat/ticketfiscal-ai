@@ -1,7 +1,9 @@
 // Flujo único de un justificante: deduplicación → límite de IA → extracción →
 // validación determinista → persistencia → auditoría. Lo usan la subida web y el webhook de WhatsApp.
 import { createHash } from "node:crypto";
+import { valorConfig } from "./configuracion";
 import { config } from "./env";
+import { prisma } from "./prisma";
 import { log } from "./logger";
 import { consumirLimite } from "./rate-limit";
 import { SEMILLA_DOCUMENTOS } from "./seed";
@@ -104,6 +106,17 @@ function extraccionDemo(nombre: string | null, empresaId: string): ResultadoFisc
   };
 }
 
+/** Registra cada llamada a la IA (proveedor, tokens, tiempo, resultado) para el panel de uso y de costes. */
+async function registrarUso(e: EntradaJustificante, info: { proveedor: string; modelo: string | null; uso?: { entrada: number; salida: number }; ms: number; ok: boolean }): Promise<void> {
+  try {
+    await prisma.usoVision.create({
+      data: { empresaId: e.empresa.id, proveedor: info.proveedor, modelo: info.modelo, entrada: info.uso?.entrada ?? 0, salida: info.uso?.salida ?? 0, ms: info.ms, ok: info.ok },
+    });
+  } catch {
+    // El registro de uso nunca debe romper la extracción.
+  }
+}
+
 async function extraerYValidar(e: EntradaJustificante): Promise<ResultadoFiscal> {
   const partes: ParteEntrada[] = [
     {
@@ -116,7 +129,24 @@ async function extraerYValidar(e: EntradaJustificante): Promise<ResultadoFiscal>
   // Un reintento si la respuesta no es JSON válido; los fallos del motor ya se reintentan dentro.
   let ultimo: unknown = null;
   for (let intento = 1; intento <= 2; intento++) {
-    const raw = await extraerConVision(FISCAL_SYSTEM_PROMPT, partes);
+    const inicio = Date.now();
+    let proveedor = "desconocido";
+    let modelo: string | null = null;
+    let uso: { entrada: number; salida: number } | undefined;
+    let raw: string;
+    try {
+      raw = await extraerConVision(FISCAL_SYSTEM_PROMPT, partes, {
+        onProveedor: (p, m) => {
+          proveedor = p;
+          modelo = m;
+        },
+        onUso: (u) => (uso = u),
+      });
+    } catch (fallo) {
+      await registrarUso(e, { proveedor, modelo, ms: Date.now() - inicio, ok: false });
+      throw fallo;
+    }
+    await registrarUso(e, { proveedor, modelo, uso, ms: Date.now() - inicio, ok: true });
     try {
       return validarExtraccion(parseExtraccion(raw), { nifEmpresa: e.empresa.nif });
     } catch (err) {
@@ -141,7 +171,8 @@ export async function procesarJustificante(e: EntradaJustificante): Promise<Resu
 
   // 2) Límite diario de extracciones por empresa (control de coste).
   const dia = new Date().toISOString().slice(0, 10);
-  const limite = await consumirLimite(`ia:${e.empresa.id}:${dia}`, config().LIMITE_IA_DIARIO_EMPRESA, 86_400);
+  const maximo = await valorConfig<number>("limiteIaDiarioEmpresa", config().LIMITE_IA_DIARIO_EMPRESA);
+  const limite = await consumirLimite(`ia:${e.empresa.id}:${dia}`, maximo, 86_400);
   if (!limite.permitido) throw new LimiteIaAlcanzado("Límite diario de justificantes alcanzado");
 
   // 3) Extracción. Sin motor: error, salvo modo demostración.

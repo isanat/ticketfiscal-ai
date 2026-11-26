@@ -27,7 +27,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const cuerpo = await leerJson(req, Body);
     if (!cuerpo.ok) return cuerpo.respuesta;
 
-    const actualizada = await cambiarEstadoEmpresa(gestoriaId, id, cuerpo.data.estado, sesion.sesion.usuarioId);
+    const actualizada = await cambiarEstadoEmpresa(gestoriaId, id, cuerpo.data.estado, sesion.sesion.usuarioId, sesion.sesion.soporteAdminId);
     if (!actualizada) return error("Empresa no encontrada", 404);
     return NextResponse.json({ empresa: aEmpresa(actualizada) });
   } catch (e) {

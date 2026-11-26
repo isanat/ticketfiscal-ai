@@ -4,6 +4,7 @@
 //  · anthropic: Claude Messages API con ANTHROPIC_API_KEY (modelo por defecto: claude-haiku-5-5).
 // Todos: timeout, reintentos solo ante fallos transitorios, respuesta JSON y registro de tokens.
 // Desarrollo: si no hay proveedor configurado se intenta el SDK local (nunca en producción).
+import { valorConfig } from "./configuracion";
 import { config, type Config } from "./env";
 import { log, mensajeError } from "./logger";
 
@@ -26,6 +27,8 @@ export interface OpcionesVision {
   onUso?: (uso: UsoTokens) => void;
   /** Fuerza un proveedor concreto (para evaluaciones comparativas). */
   proveedor?: Proveedor;
+  /** Se invoca al elegir el proveedor (para registrar uso y coste). */
+  onProveedor?: (proveedor: Proveedor, modelo: string) => void;
   /** Tiempo máximo por llamada (por defecto 45 s). */
   timeoutMs?: number;
   /** Intentos máximos ante fallos transitorios (por defecto 3). */
@@ -269,6 +272,13 @@ export function tarifasProveedor(p: Proveedor, c: Config = config()): { entrada?
   return {};
 }
 
+/** Proveedor elegido desde la administración (si tiene credenciales); si no, el de las variables de entorno. */
+async function proveedorPreferido(c: Config): Promise<Proveedor | null> {
+  const elegido = await valorConfig<string>("proveedorVision", c.VISION_PROVIDER);
+  if (elegido === c.VISION_PROVIDER || elegido === "auto") return null;
+  return proveedorActivo({ ...c, VISION_PROVIDER: elegido as Config["VISION_PROVIDER"] });
+}
+
 /** Solo desarrollo local: SDK con su fichero de configuración. */
 async function llamadaSdkLocal(system: string, partes: ParteEntrada[]): Promise<{ texto: string }> {
   const mod: any = await import("z-ai-web-dev-sdk");
@@ -292,9 +302,11 @@ async function llamadaSdkLocal(system: string, partes: ParteEntrada[]): Promise<
  */
 export async function extraerConVision(system: string, partes: ParteEntrada[], opciones: OpcionesVision = {}): Promise<string> {
   const c = config();
-  const proveedor = opciones.proveedor ?? proveedorActivo(c);
+  const preferido = opciones.proveedor ?? (await proveedorPreferido(c));
+  const proveedor = preferido ?? proveedorActivo(c);
 
   if (proveedor) {
+    opciones.onProveedor?.(proveedor, proveedor === "anthropic" ? c.ANTHROPIC_MODEL : proveedor === "gemini" ? c.GEMINI_MODEL : c.ZAI_MODEL);
     const r =
       proveedor === "anthropic"
         ? await llamadaAnthropic(system, partes, c, opciones)

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { exigirRol, sesionDeRequest } from "@/lib/auth";
+import { exigirRol, respuestaGestoriaNoActiva, sesionDeRequest } from "@/lib/auth";
 import { error, leerJson, origenPermitido } from "@/lib/http";
 import { log, mensajeError } from "@/lib/logger";
 import { consumirLimite } from "@/lib/rate-limit";
@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
     if (sesion.usuario.rol === "GESTOR") {
       const gestoriaId = sesion.usuario.gestoria?.id;
       if (!gestoriaId) return error("Cuenta sin gestoría asociada", 400);
+      if (sesion.usuario.gestoria?.estado !== "ACTIVA") return respuestaGestoriaNoActiva(sesion.usuario.gestoria?.estado);
       const documentos = await listarDocumentos({
         gestoriaId,
         empresaId: q.data.empresaId,
@@ -132,7 +133,7 @@ export async function DELETE(req: NextRequest) {
     const id = req.nextUrl.searchParams.get("id") ?? "";
     if (!id || id.length > 64) return error("Indique el documento a retirar", 400);
 
-    const ok = await eliminarDocumentoLogico(id, gestoriaId, sesion.sesion.usuarioId);
+    const ok = await eliminarDocumentoLogico(id, gestoriaId, sesion.sesion.usuarioId, sesion.sesion.soporteAdminId);
     if (!ok) return error("Documento no encontrado", 404);
     return NextResponse.json({ ok: true, id });
   } catch (e) {

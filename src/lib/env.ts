@@ -39,6 +39,21 @@ const esquema = z.object({
   WHATSAPP_APP_SECRET: z.string().min(8).optional(),
   WHATSAPP_ACCESS_TOKEN: z.string().min(10).optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().min(5).optional(),
+  // Administración del dueño del sistema.
+  /** Clave AES-256 en base64 (32 bytes) para cifrar el secreto TOTP. */
+  ADMIN_ENCRYPTION_KEY: z.string().min(40).optional(),
+  /** E-mail del dueño (pre-aprobado): solo esta dirección puede crear el primer administrador. */
+  ADMIN_EMAIL: z.email().optional(),
+  /** Token de un solo uso para el primer acceso. Se desactiva al existir un administrador. */
+  ADMIN_BOOTSTRAP_TOKEN: z.string().min(24).optional(),
+  /** Segundo factor adicional por e-mail. Desactivado hasta tener dominio verificado en Resend. */
+  EMAIL_2FA_ACTIVO: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  RESEND_API_KEY: z.string().min(10).optional(),
+  /** Remitente verificado, p. ej. "TicketFiscal AI <seguridad@su-dominio.es>". */
+  EMAIL_REMITENTE: z.string().min(5).optional(),
   // Límite diario de extracciones IA por empresa (control de coste).
   LIMITE_IA_DIARIO_EMPRESA: z.coerce.number().int().positive().default(50),
 });

@@ -1,6 +1,7 @@
 // Tipos compartidos frontend ↔ backend (multi-tenant)
 
-export type Rol = "GESTOR" | "CLIENTE";
+export type Rol = "GESTOR" | "CLIENTE" | "ADMIN";
+export type EstadoGestoria = "PENDIENTE" | "ACTIVA" | "SUSPENDIDA";
 
 /** Lo que ve el cliente de su propia sesión (nunca el hash). */
 export interface UsuarioSesion {
@@ -8,11 +9,15 @@ export interface UsuarioSesion {
   nombre: string;
   email: string;
   rol: Rol;
-  gestoria?: { id: string; nombre: string };
+  gestoria?: { id: string; nombre: string; estado: EstadoGestoria };
   empresa?: { id: string; nombre: string; nif: string; ciudad?: string | null; estado: EstadoEmpresa };
+  /** La cuenta está suspendida: no se admite la sesión. Solo uso interno del servidor. */
+  suspendida?: boolean;
+  /** Sesión de soporte abierta por un administrador (se muestra un aviso en la interfaz). */
+  soporte?: boolean;
 }
 
-export type EstadoEmpresa = "PENDIENTE" | "APROBADA" | "RECHAZADA";
+export type EstadoEmpresa = "PENDIENTE" | "APROBADA" | "RECHAZADA" | "SUSPENDIDA";
 
 export interface Empresa {
   id: string;

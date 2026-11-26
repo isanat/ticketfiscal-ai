@@ -2,7 +2,7 @@
 // filtra por gestoría o por empresa; no hay consultas globales desde las rutas.
 import { Prisma, type Empresa as EmpresaFila } from "@prisma/client";
 import { prisma } from "./prisma";
-import type { Documento, EmpresaResumen, EstadoEmpresa, LineaImpuesto, RevisionDocumento, Rol, UsuarioSesion } from "./types";
+import type { Documento, EmpresaResumen, EstadoEmpresa, EstadoGestoria, LineaImpuesto, RevisionDocumento, Rol, UsuarioSesion } from "./types";
 import { trimestreDe } from "./fiscal";
 
 type DocumentoFila = Prisma.DocumentoGetPayload<{ include: { lineas: true } }>;
@@ -131,7 +131,10 @@ export async function contextoUsuarioPorId(usuarioId: string): Promise<UsuarioSe
   });
   if (!u) return null;
   const base: UsuarioSesion = { id: u.id, nombre: u.nombre, email: u.email, rol: u.rol as Rol };
-  if (u.gestoria) base.gestoria = { id: u.gestoria.id, nombre: u.gestoria.nombre };
+  if (u.estado === "SUSPENDIDA") base.suspendida = true;
+  if (u.gestoria) {
+    base.gestoria = { id: u.gestoria.id, nombre: u.gestoria.nombre, estado: u.gestoria.estado as EstadoGestoria };
+  }
   if (u.empresa) {
     base.empresa = {
       id: u.empresa.id,
@@ -208,12 +211,13 @@ export async function cambiarEstadoEmpresa(
   gestoriaId: string,
   empresaId: string,
   estado: "APROBADA" | "RECHAZADA",
-  usuarioId: string
+  usuarioId: string,
+  soporteAdminId?: string | null
 ): Promise<EmpresaFila | null> {
   const empresa = await prisma.empresa.findFirst({ where: { id: empresaId, gestoriaId } });
   if (!empresa) return null;
   const actualizada = await prisma.empresa.update({ where: { id: empresaId }, data: { estado } });
-  await registrarAuditoria({ usuarioId, gestoriaId, accion: `empresa.${estado.toLowerCase()}`, entidad: "Empresa", entidadId: empresaId });
+  await registrarAuditoria({ usuarioId, gestoriaId, accion: `empresa.${estado.toLowerCase()}`, entidad: "Empresa", entidadId: empresaId, impersonadoPorId: soporteAdminId });
   return actualizada;
 }
 
@@ -328,7 +332,8 @@ export async function actualizarRevision(
   documentoId: string,
   gestoriaId: string,
   usuarioId: string,
-  cambios: { revision?: RevisionDocumento; cuentaPgc?: string | null; motivoRevision?: string | null }
+  cambios: { revision?: RevisionDocumento; cuentaPgc?: string | null; motivoRevision?: string | null },
+  soporteAdminId?: string | null
 ): Promise<DocumentoFila | null> {
   const doc = await prisma.documento.findFirst({ where: { id: documentoId, eliminadoEn: null, empresa: { gestoriaId } } });
   if (!doc) return null;
@@ -348,18 +353,19 @@ export async function actualizarRevision(
     entidad: "Documento",
     entidadId: documentoId,
     detalle: { cambios: { ...cambios } },
+    impersonadoPorId: soporteAdminId,
   });
   return actualizado;
 }
 
 /** Borrado lógico: el registro fiscal se conserva y queda en auditoría. */
-export async function eliminarDocumentoLogico(documentoId: string, gestoriaId: string, usuarioId: string): Promise<boolean> {
+export async function eliminarDocumentoLogico(documentoId: string, gestoriaId: string, usuarioId: string, soporteAdminId?: string | null): Promise<boolean> {
   const r = await prisma.documento.updateMany({
     where: { id: documentoId, eliminadoEn: null, empresa: { gestoriaId } },
     data: { eliminadoEn: new Date() },
   });
   if (r.count === 0) return false;
-  await registrarAuditoria({ usuarioId, gestoriaId, accion: "documento.eliminado", entidad: "Documento", entidadId: documentoId });
+  await registrarAuditoria({ usuarioId, gestoriaId, accion: "documento.eliminado", entidad: "Documento", entidadId: documentoId, impersonadoPorId: soporteAdminId });
   return true;
 }
 
@@ -372,6 +378,8 @@ export async function registrarAuditoria(e: {
   entidad: string;
   entidadId: string;
   detalle?: Prisma.InputJsonValue;
+  /** Administrador que actúa en nombre del usuario (sesión de soporte). */
+  impersonadoPorId?: string | null;
 }): Promise<void> {
   await prisma.auditoriaEvento.create({
     data: {
@@ -381,6 +389,7 @@ export async function registrarAuditoria(e: {
       entidad: e.entidad,
       entidadId: e.entidadId,
       detalle: e.detalle ?? Prisma.JsonNull,
+      impersonadoPorId: e.impersonadoPorId ?? null,
     },
   });
 }

@@ -31,7 +31,7 @@ async function main(): Promise<void> {
     await prisma.gestoria.upsert({
       where: { id: g.id },
       update: {},
-      create: { id: g.id, nombre: g.nombre, cif: g.cif, ciudad: g.ciudad },
+      create: { id: g.id, nombre: g.nombre, cif: g.cif, ciudad: g.ciudad, estado: "ACTIVA" },
     });
   }
 

@@ -35,7 +35,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const cuerpo = await leerJson(req, Body);
     if (!cuerpo.ok) return cuerpo.respuesta;
 
-    const actualizado = await actualizarRevision(id, gestoriaId, sesion.sesion.usuarioId, cuerpo.data);
+    const actualizado = await actualizarRevision(id, gestoriaId, sesion.sesion.usuarioId, cuerpo.data, sesion.sesion.soporteAdminId);
     if (!actualizado) return error("Documento no encontrado", 404);
     return NextResponse.json({ documento: aDocumento(actualizado) });
   } catch (e) {

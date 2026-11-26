@@ -3,6 +3,7 @@ import { z } from "zod";
 import { fijarCookieSesion } from "@/lib/auth";
 import { error, ipCliente, leerJson, origenPermitido } from "@/lib/http";
 import { hashPassword } from "@/lib/hash";
+import { valorConfig } from "@/lib/configuracion";
 import { log, mensajeError } from "@/lib/logger";
 import { validarIdentificadorFiscal } from "@/lib/nif";
 import { consumirLimite } from "@/lib/rate-limit";
@@ -79,6 +80,9 @@ export async function POST(req: NextRequest) {
 
     let usuarioId: string;
     if (b.rol === "GESTOR") {
+      if (!(await valorConfig<boolean>("registroGestoriasAbierto", true))) {
+        return error("El alta de nuevas gestorías está cerrada temporalmente.", 403);
+      }
       usuarioId = await registrarGestor({
         nombre: b.nombre,
         email: b.email,
@@ -116,7 +120,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const { token, expiraEn } = await crearSesion(usuarioId);
+    const { token, expiraEn } = await crearSesion(usuarioId, { ip: ipCliente(req), userAgent: req.headers.get("user-agent") });
     const contexto = await contextoUsuarioPorId(usuarioId);
     const res = NextResponse.json({ usuario: contexto }, { status: 201 });
     fijarCookieSesion(res, token, expiraEn);

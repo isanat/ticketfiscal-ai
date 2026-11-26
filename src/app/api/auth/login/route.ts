@@ -6,6 +6,7 @@ import { hashPassword, verifyPassword } from "@/lib/hash";
 import { log, mensajeError } from "@/lib/logger";
 import { consumirLimite } from "@/lib/rate-limit";
 import { crearSesion } from "@/lib/sesiones";
+import { prisma } from "@/lib/prisma";
 import { contextoUsuarioPorId, findUsuarioPorEmail } from "@/lib/store";
 
 export const runtime = "nodejs";
@@ -41,12 +42,20 @@ export async function POST(req: NextRequest) {
       hashFicticio ??= hashPassword("ficticio-no-usar");
       await verifyPassword(password, await hashFicticio);
     }
-    if (!usuario || !valida) {
+    // Las cuentas de administrador solo entran por /api/admin/auth/login (con segundo factor).
+    if (!usuario || !valida || usuario.rol === "ADMIN") {
       log("warn", "auth.login_fallido");
       return error("Email o contraseña incorrectos", 401);
     }
+    if (usuario.estado === "SUSPENDIDA") {
+      return error("Su cuenta está suspendida. Contacte con soporte.", 403);
+    }
 
-    const { token, expiraEn } = await crearSesion(usuario.id);
+    await prisma.usuario.update({ where: { id: usuario.id }, data: { ultimoAcceso: new Date() } });
+    const { token, expiraEn } = await crearSesion(usuario.id, {
+      ip: ipCliente(req),
+      userAgent: req.headers.get("user-agent"),
+    });
     const contexto = await contextoUsuarioPorId(usuario.id);
     if (!contexto) return error("No se pudo cargar la cuenta", 500);
 

@@ -1,7 +1,7 @@
 // Autenticación y autorización por rol. La sesión se valida contra la base de datos
 // en cada petición (revocación inmediata).
 import { NextRequest, NextResponse } from "next/server";
-import { revocarSesion, usuarioIdDeToken, DIAS_SESION } from "./sesiones";
+import { datosDeToken, revocarSesion, revocarTodasDeUsuario, DIAS_SESION } from "./sesiones";
 import type { Rol, UsuarioSesion } from "./types";
 import { contextoUsuarioPorId } from "./store";
 
@@ -11,6 +11,11 @@ export interface SesionActiva {
   usuario: UsuarioSesion;
   usuarioId: string;
   token: string;
+  sesionId: string;
+  /** Última verificación del segundo factor (solo administradores). */
+  totpVerificadoEn: Date | null;
+  /** Administrador que abrió esta sesión de soporte, si lo es. */
+  soporteAdminId: string | null;
 }
 
 function opcionesCookie(expira?: Date) {
@@ -39,15 +44,41 @@ export function tokenDeRequest(req: NextRequest): string | null {
 export async function sesionDeRequest(req: NextRequest): Promise<SesionActiva | null> {
   const token = tokenDeRequest(req);
   if (!token) return null;
-  const usuarioId = await usuarioIdDeToken(token);
-  if (!usuarioId) return null;
-  const usuario = await contextoUsuarioPorId(usuarioId);
+  const datos = await datosDeToken(token);
+  if (!datos) return null;
+  const usuario = await contextoUsuarioPorId(datos.usuarioId);
   if (!usuario) return null;
-  return { usuario, usuarioId, token };
+  // Una suspensión corta el acceso de inmediato, incluso con sesión abierta.
+  if (usuario.suspendida) {
+    await revocarTodasDeUsuario(datos.usuarioId);
+    return null;
+  }
+  if (datos.impersonadoPorId) usuario.soporte = true;
+  return {
+    usuario,
+    usuarioId: datos.usuarioId,
+    token,
+    sesionId: datos.id,
+    totpVerificadoEn: datos.totpVerificadoEn,
+    soporteAdminId: datos.impersonadoPorId,
+  };
 }
 
 export const RESPUESTA_SIN_SESION = (): NextResponse =>
   NextResponse.json({ error: "Sin sesión activa" }, { status: 401 });
+
+export function respuestaGestoriaNoActiva(estado?: string): NextResponse {
+  return NextResponse.json(
+    {
+      error:
+        estado === "SUSPENDIDA"
+          ? "Su gestoría está suspendida. Contacte con soporte."
+          : "Su gestoría está pendiente de aprobación por el equipo de TicketFiscal.",
+      codigo: estado === "SUSPENDIDA" ? "GESTORIA_SUSPENDIDA" : "GESTORIA_PENDIENTE",
+    },
+    { status: 403 }
+  );
+}
 
 /** Exige sesión con el rol indicado. Devuelve la sesión o una respuesta de error. */
 export function exigirRol(
@@ -60,6 +91,10 @@ export function exigirRol(
       ok: false,
       respuesta: NextResponse.json({ error: "No tiene permisos para esta operación" }, { status: 403 }),
     };
+  }
+  // Una gestoría pendiente de aprobación o suspendida no accede a datos de su cartera.
+  if (rol === "GESTOR" && sesion.usuario.gestoria?.estado !== "ACTIVA") {
+    return { ok: false, respuesta: respuestaGestoriaNoActiva(sesion.usuario.gestoria?.estado) };
   }
   return { ok: true, sesion };
 }

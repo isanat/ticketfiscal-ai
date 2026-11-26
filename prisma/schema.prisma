@@ -15,15 +15,28 @@ datasource db {
   directUrl = env("STORAGE_POSTGRES_URL_NON_POOLING")
 }
 
+enum EstadoCuenta {
+  ACTIVA
+  SUSPENDIDA
+}
+
+enum EstadoGestoria {
+  PENDIENTE
+  ACTIVA
+  SUSPENDIDA
+}
+
 enum Rol {
   GESTOR
   CLIENTE
+  ADMIN
 }
 
 enum EstadoEmpresa {
   PENDIENTE
   APROBADA
   RECHAZADA
+  SUSPENDIDA
 }
 
 enum EstadoDocumento {
@@ -51,57 +64,73 @@ enum OrigenDocumento {
 }
 
 model Gestoria {
-  id        String    @id @default(cuid())
-  nombre    String
-  cif       String?
-  ciudad    String?
-  createdAt DateTime  @default(now())
-  usuarios  Usuario[]
-  empresas  Empresa[]
+  id               String         @id @default(cuid())
+  nombre           String
+  cif              String?
+  ciudad           String?
+  createdAt        DateTime       @default(now())
+  usuarios         Usuario[]
+  empresas         Empresa[]
+  estado           EstadoGestoria @default(PENDIENTE)
+  motivoSuspension String?
 }
 
 model Usuario {
-  id           String            @id @default(cuid())
-  email        String            @unique
-  passwordHash String
-  nombre       String
-  rol          Rol
-  gestoriaId   String?
-  gestoria     Gestoria?         @relation(fields: [gestoriaId], references: [id])
-  empresaId    String?           @unique
-  empresa      Empresa?          @relation(fields: [empresaId], references: [id])
-  sesiones     Sesion[]
-  auditoria    AuditoriaEvento[]
-  createdAt    DateTime          @default(now())
+  id               String                @id @default(cuid())
+  email            String                @unique
+  passwordHash     String
+  nombre           String
+  rol              Rol
+  gestoriaId       String?
+  gestoria         Gestoria?             @relation(fields: [gestoriaId], references: [id])
+  empresaId        String?               @unique
+  empresa          Empresa?              @relation(fields: [empresaId], references: [id])
+  sesiones         Sesion[]
+  auditoria        AuditoriaEvento[]
+  createdAt        DateTime              @default(now())
+  estado           EstadoCuenta          @default(ACTIVA)
+  motivoSuspension String?
+  suspendidoEn     DateTime?
+  ultimoAcceso     DateTime?
+  totp             TotpAdmin?
+  codigosRespaldo  CodigoRespaldoAdmin[]
+  codigosEmail     CodigoEmail[]
 }
 
 /// Sesión revocable. Se guarda el hash SHA-256 del token, nunca el token.
 model Sesion {
-  id         String    @id @default(cuid())
-  usuarioId  String
-  usuario    Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  tokenHash  String    @unique
-  expiraEn   DateTime
-  revocadaEn DateTime?
-  createdAt  DateTime  @default(now())
+  id               String    @id @default(cuid())
+  usuarioId        String
+  usuario          Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  tokenHash        String    @unique
+  expiraEn         DateTime
+  revocadaEn       DateTime?
+  createdAt        DateTime  @default(now())
+  /// Última verificación TOTP (solo ADMIN). Los cambios sensibles exigen una reciente.
+  totpVerificadoEn DateTime?
+  /// Si es una sesión de soporte, id del administrador que la abrió.
+  impersonadoPorId String?
+  ip               String?
+  userAgent        String?
 
   @@index([usuarioId])
 }
 
 model Empresa {
-  id         String        @id @default(cuid())
-  nombre     String
-  nif        String        @unique
-  direccion  String?
-  ciudad     String?
+  id               String        @id @default(cuid())
+  nombre           String
+  nif              String        @unique
+  direccion        String?
+  ciudad           String?
   /// Número en formato E.164 sin "+" (p. ej. 34600111222). Identifica el canal WhatsApp.
-  whatsapp   String?       @unique
-  estado     EstadoEmpresa @default(PENDIENTE)
-  gestoriaId String?
-  gestoria   Gestoria?     @relation(fields: [gestoriaId], references: [id])
-  usuarios   Usuario[]
-  documentos Documento[]
-  createdAt  DateTime      @default(now())
+  whatsapp         String?       @unique
+  estado           EstadoEmpresa @default(PENDIENTE)
+  gestoriaId       String?
+  gestoria         Gestoria?     @relation(fields: [gestoriaId], references: [id])
+  usuarios         Usuario[]
+  documentos       Documento[]
+  createdAt        DateTime      @default(now())
+  motivoSuspension String?
 
   @@index([gestoriaId, estado])
 }
@@ -189,16 +218,80 @@ model LimiteUso {
 
 /// Registro de cambios sobre datos fiscales.
 model AuditoriaEvento {
-  id         String   @id @default(cuid())
-  usuarioId  String?
-  usuario    Usuario? @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
-  gestoriaId String?
-  accion     String
-  entidad    String
-  entidadId  String
-  detalle    Json?
-  createdAt  DateTime @default(now())
+  id               String   @id @default(cuid())
+  usuarioId        String?
+  usuario          Usuario? @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+  gestoriaId       String?
+  accion           String
+  entidad          String
+  entidadId        String
+  detalle          Json?
+  createdAt        DateTime @default(now())
+  /// Administrador que actuaba en nombre del usuario (sesión de soporte).
+  impersonadoPorId String?
 
   @@index([gestoriaId, createdAt])
   @@index([entidad, entidadId])
+}
+
+/// Segundo factor del administrador. El secreto se guarda cifrado (AES-256-GCM).
+model TotpAdmin {
+  id             String   @id @default(cuid())
+  usuarioId      String   @unique
+  usuario        Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  secretoCifrado String
+  activado       Boolean  @default(false)
+  /// Último intervalo de 30 s aceptado: impide reutilizar el mismo código.
+  ultimoPaso     BigInt   @default(0)
+  createdAt      DateTime @default(now())
+}
+
+/// Códigos de recuperación de un solo uso (se guarda su hash).
+model CodigoRespaldoAdmin {
+  id        String    @id @default(cuid())
+  usuarioId String
+  usuario   Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  hash      String
+  usadoEn   DateTime?
+
+  @@index([usuarioId])
+}
+
+/// Código de un solo uso enviado por e-mail (desactivado hasta tener dominio verificado).
+model CodigoEmail {
+  id        String    @id @default(cuid())
+  usuarioId String
+  usuario   Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  proposito String
+  hash      String
+  intentos  Int       @default(0)
+  expiraEn  DateTime
+  usadoEn   DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([usuarioId, proposito])
+}
+
+/// Ajustes no secretos editables desde la administración. Las claves de API viven en Vercel.
+model Configuracion {
+  clave          String   @id
+  valor          Json
+  actualizadoPor String?
+  updatedAt      DateTime @updatedAt
+}
+
+/// Registro de cada extracción con IA: base del panel de uso y de costes.
+model UsoVision {
+  id        String   @id @default(cuid())
+  empresaId String?
+  proveedor String
+  modelo    String?
+  entrada   Int      @default(0)
+  salida    Int      @default(0)
+  ms        Int      @default(0)
+  ok        Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([empresaId, createdAt])
 }
