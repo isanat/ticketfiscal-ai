@@ -165,3 +165,16 @@ describe("validación NIF/CIF", () => {
     expect(validarIdentificadorFiscal("A28547963").valido).toBe(false);
   });
 });
+
+describe("variantesNumero (WhatsApp Brasil)", () => {
+  it("acepta el móvil brasileño con y sin el 9", async () => {
+    const { variantesNumero } = await import("../whatsapp");
+    expect(variantesNumero("5518996426306")).toEqual(["5518996426306", "551896426306"]);
+    expect(variantesNumero("551896426306")).toEqual(["551896426306", "5518996426306"]);
+  });
+  it("no toca los números de otros países ni los fijos brasileños", async () => {
+    const { variantesNumero } = await import("../whatsapp");
+    expect(variantesNumero("34600111222")).toEqual(["34600111222"]);
+    expect(variantesNumero("551832221111")).toEqual(["551832221111"]);
+  });
+});

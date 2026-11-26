@@ -113,3 +113,16 @@ export async function enviarTexto(numero: string, texto: string): Promise<boolea
   });
   return res.ok;
 }
+
+/**
+ * Variantes equivalentes de un número. En Brasil, WhatsApp puede entregar el remitente sin el «9» de los
+ * móviles (55 + DDD + 9 + 8 dígitos ↔ 55 + DDD + 8 dígitos), así que se buscan ambas formas.
+ */
+export function variantesNumero(numero: string): string[] {
+  const n = numero.replace(/\D/g, "");
+  const con9 = /^55(\d{2})9(\d{8})$/.exec(n);
+  if (con9) return [n, `55${con9[1]}${con9[2]}`];
+  const sin9 = /^55(\d{2})([6-9]\d{7})$/.exec(n);
+  if (sin9) return [n, `55${sin9[1]}9${sin9[2]}`];
+  return [n];
+}

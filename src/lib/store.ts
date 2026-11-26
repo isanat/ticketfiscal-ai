@@ -2,6 +2,7 @@
 // filtra por gestoría o por empresa; no hay consultas globales desde las rutas.
 import { Prisma, type Empresa as EmpresaFila } from "@prisma/client";
 import { prisma } from "./prisma";
+import { variantesNumero } from "./whatsapp";
 import type { Documento, EmpresaResumen, EstadoEmpresa, EstadoGestoria, LineaImpuesto, RevisionDocumento, Rol, UsuarioSesion } from "./types";
 import { trimestreDe } from "./fiscal";
 
@@ -204,7 +205,7 @@ export async function obtenerEmpresa(id: string): Promise<EmpresaFila | null> {
 }
 
 export async function empresaPorWhatsapp(numero: string): Promise<EmpresaFila | null> {
-  return prisma.empresa.findUnique({ where: { whatsapp: numero } });
+  return prisma.empresa.findFirst({ where: { whatsapp: { in: variantesNumero(numero) } } });
 }
 
 export async function cambiarEstadoEmpresa(
