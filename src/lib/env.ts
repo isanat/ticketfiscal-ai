@@ -27,7 +27,7 @@ const esquema = z.object({
   ANTHROPIC_PRECIO_ENTRADA_USD_M: z.coerce.number().nonnegative().optional(),
   ANTHROPIC_PRECIO_SALIDA_USD_M: z.coerce.number().nonnegative().optional(),
   GEMINI_API_KEY: z.string().min(10).optional(),
-  GEMINI_MODEL: z.string().default("gemini-flash-latest"),
+  GEMINI_MODEL: z.string().default("gemini-3.5-flash-lite"),
   // Tarifas en USD por millón de tokens (de la tabla oficial vigente). Sin ellas solo se registran tokens.
   GEMINI_PRECIO_ENTRADA_USD_M: z.coerce.number().nonnegative().optional(),
   GEMINI_PRECIO_SALIDA_USD_M: z.coerce.number().nonnegative().optional(),
