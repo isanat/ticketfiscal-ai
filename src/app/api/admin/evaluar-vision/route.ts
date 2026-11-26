@@ -22,9 +22,29 @@ export async function GET(req: NextRequest) {
   if (!tokenValido(req.nextUrl.searchParams.get("t"))) {
     return new NextResponse("Not found", { status: 404 });
   }
+  // Diagnóstico: una petición mínima a Gemini, sin devolver la clave.
+  if (req.nextUrl.searchParams.get("modo") === "ping") {
+    const clave = process.env.GEMINI_API_KEY ?? "";
+    const modelo = process.env.GEMINI_MODEL || "gemini-flash-latest";
+    const inicio = Date.now();
+    try {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": clave },
+        body: JSON.stringify({ contents: [{ parts: [{ text: "Responde solo: ok" }] }], generationConfig: { maxOutputTokens: 20 } }),
+        signal: AbortSignal.timeout(25000),
+      });
+      const cuerpo = (await r.text()).slice(0, 300);
+      return NextResponse.json({ status: r.status, ms: Date.now() - inicio, modelo, claveConfigurada: clave.length > 0, cuerpo });
+    } catch (e) {
+      return NextResponse.json({ ms: Date.now() - inicio, modelo, claveConfigurada: clave.length > 0, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  const caso = req.nextUrl.searchParams.get("caso");
   const leer = (archivo: string) => readFileSync(path.join(process.cwd(), "public", "samples", archivo));
   try {
-    const informe = await ejecutarEvaluacion(leer);
+    const informe = await ejecutarEvaluacion(leer, caso === null ? undefined : Number(caso));
     return NextResponse.json(informe, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "error" }, { status: 500 });

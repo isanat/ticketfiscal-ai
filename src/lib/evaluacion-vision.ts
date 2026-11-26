@@ -130,10 +130,11 @@ export interface InformeEval {
 }
 
 /** Ejecuta todos los casos y resume. Usa tarifas de entorno si existen. */
-export async function ejecutarEvaluacion(leer: (archivo: string) => Buffer): Promise<InformeEval> {
+export async function ejecutarEvaluacion(leer: (archivo: string) => Buffer, soloIndice?: number): Promise<InformeEval> {
   const c = config();
   const resultados: ResultadoEval[] = [];
-  for (const caso of CASOS_EVAL) resultados.push(await evaluarCaso(caso, leer));
+  const casos = soloIndice === undefined ? CASOS_EVAL : [CASOS_EVAL[soloIndice]].filter(Boolean);
+  for (const caso of casos) resultados.push(await evaluarCaso(caso, leer));
 
   const campos = resultados.flatMap((r) => Object.values(r.aciertos));
   const aciertos = campos.filter(Boolean).length;
