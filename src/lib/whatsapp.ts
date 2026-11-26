@@ -3,6 +3,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { config } from "./env";
+import { log } from "./logger";
 
 const GRAPH = "https://graph.facebook.com";
 const TIMEOUT_MS = 15_000;
@@ -84,19 +85,32 @@ async function graphGet(ruta: string): Promise<Response> {
 export async function descargarAdjunto(mediaId: string, maxBytes: number): Promise<{ bytes: Buffer; mime: string } | null> {
   try {
     const meta = await graphGet(mediaId);
-    if (!meta.ok) return null;
+    if (!meta.ok) {
+      log("warn", "whatsapp.adjunto_fallido", { etapa: "metadatos", status: meta.status });
+      return null;
+    }
     const info = (await meta.json()) as { url?: string; file_size?: number };
-    if (!info.url || (info.file_size ?? 0) > maxBytes) return null;
+    if (!info.url || (info.file_size ?? 0) > maxBytes) {
+      log("warn", "whatsapp.adjunto_fallido", { etapa: "metadatos", motivo: info.url ? "demasiado_grande" : "sin_url" });
+      return null;
+    }
     const res = await fetch(info.url, {
       headers: { Authorization: `Bearer ${config().WHATSAPP_ACCESS_TOKEN}` },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      log("warn", "whatsapp.adjunto_fallido", { etapa: "descarga", status: res.status });
+      return null;
+    }
     const bytes = Buffer.from(await res.arrayBuffer());
-    if (bytes.length === 0 || bytes.length > maxBytes) return null;
+    if (bytes.length === 0 || bytes.length > maxBytes) {
+      log("warn", "whatsapp.adjunto_fallido", { etapa: "descarga", motivo: "tamano_no_valido" });
+      return null;
+    }
     return { bytes, mime: res.headers.get("content-type") ?? "application/octet-stream" };
-  } catch {
+  } catch (e) {
     // Red o tiempo de espera: el llamador responde al usuario pidiendo reenvío.
+    log("warn", "whatsapp.adjunto_fallido", { etapa: "red", motivo: e instanceof Error ? e.name : "desconocido" });
     return null;
   }
 }

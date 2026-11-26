@@ -52,6 +52,8 @@ export async function POST(req: NextRequest) {
   }
 
   const mensajes = extraerMensajes(payload);
+  // Sin datos personales: solo cuántos mensajes y de qué tipo (los avisos de estado no traen mensajes).
+  log("info", "whatsapp.recibido", { mensajes: mensajes.length, tipos: mensajes.map((m) => m.tipo).join(",") });
   after(async () => {
     for (const m of mensajes) {
       try {
@@ -115,9 +117,11 @@ async function procesarMensaje(m: MensajeEntrante): Promise<void> {
       await responder(m.numero, "Ese justificante ya estaba registrado. No lo he vuelto a contar.");
       return;
     }
+    log("info", "whatsapp.procesado", { estado: r.documento.estado });
     await responder(m.numero, r.documento.mensajeWhatsapp ?? "Justificante recibido.");
   } catch (e) {
     if (e instanceof MotorVisionNoDisponible) {
+      log("warn", "whatsapp.motor_no_disponible", { motivo: mensajeError(e) });
       await responder(m.numero, "Ahora mismo no puedo procesar justificantes. Reenvíelo en unos minutos.");
     } else if (e instanceof LimiteIaAlcanzado) {
       await responder(m.numero, "Ha alcanzado el límite diario de justificantes de su empresa.");
