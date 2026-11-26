@@ -117,20 +117,22 @@ model Sesion {
 }
 
 model Empresa {
-  id               String        @id @default(cuid())
+  id               String               @id @default(cuid())
   nombre           String
-  nif              String        @unique
+  nif              String               @unique
   direccion        String?
   ciudad           String?
   /// Número en formato E.164 sin "+" (p. ej. 34600111222). Identifica el canal WhatsApp.
-  whatsapp         String?       @unique
-  estado           EstadoEmpresa @default(PENDIENTE)
+  whatsapp         String?              @unique
+  estado           EstadoEmpresa        @default(PENDIENTE)
   gestoriaId       String?
-  gestoria         Gestoria?     @relation(fields: [gestoriaId], references: [id])
+  gestoria         Gestoria?            @relation(fields: [gestoriaId], references: [id])
   usuarios         Usuario[]
   documentos       Documento[]
-  createdAt        DateTime      @default(now())
+  createdAt        DateTime             @default(now())
   motivoSuspension String?
+  movimientos      MovimientoBancario[]
+  conexionesBanco  ConexionBancaria[]
 
   @@index([gestoriaId, estado])
 }
@@ -187,8 +189,9 @@ model Documento {
   // Borrado lógico: un registro fiscal no se destruye.
   eliminadoEn DateTime?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  conciliacion Conciliacion?
 
   // Deduplicación por hash en la aplicación (filtrando borrados lógicos).
   @@index([empresaId, imagenHash])
@@ -294,4 +297,64 @@ model UsoVision {
 
   @@index([createdAt])
   @@index([empresaId, createdAt])
+}
+
+enum OrigenMovimiento {
+  CSV
+  N43
+  OPEN_BANKING
+}
+
+enum EstadoConciliacion {
+  CONFIRMADA
+}
+
+/// Movimiento del extracto bancario de una empresa (importado o leído por Open Banking).
+model MovimientoBancario {
+  id             String           @id @default(cuid())
+  empresaId      String
+  empresa        Empresa          @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  /// Id estable del movimiento: reimportar el mismo extracto no duplica.
+  idExterno      String
+  fecha          DateTime         @db.Date
+  /// Negativo = cargo (gasto), positivo = abono.
+  importe        Decimal          @db.Decimal(14, 2)
+  descripcion    String
+  origen         OrigenMovimiento
+  importadoPorId String?
+  createdAt      DateTime         @default(now())
+  conciliacion   Conciliacion?
+
+  @@unique([empresaId, idExterno])
+  @@index([empresaId, fecha])
+}
+
+/// Vínculo confirmado entre un movimiento y un justificante.
+model Conciliacion {
+  id            String             @id @default(cuid())
+  movimientoId  String             @unique
+  movimiento    MovimientoBancario @relation(fields: [movimientoId], references: [id], onDelete: Cascade)
+  documentoId   String             @unique
+  documento     Documento          @relation(fields: [documentoId], references: [id], onDelete: Cascade)
+  puntuacion    Float
+  estado        EstadoConciliacion @default(CONFIRMADA)
+  motivos       Json
+  decididoPorId String?
+  createdAt     DateTime           @default(now())
+}
+
+/// Conexión con un banco vía proveedor de Open Banking (preparada; requiere credenciales del proveedor).
+model ConexionBancaria {
+  id                String    @id @default(cuid())
+  empresaId         String
+  empresa           Empresa   @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  proveedor         String
+  /// Referencia del proveedor (p. ej. id de la «requisition» de GoCardless).
+  referenciaExterna String
+  institucion       String
+  estado            String    @default("PENDIENTE")
+  expiraEn          DateTime?
+  createdAt         DateTime  @default(now())
+
+  @@index([empresaId])
 }
