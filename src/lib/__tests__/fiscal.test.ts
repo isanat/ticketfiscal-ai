@@ -97,7 +97,7 @@ describe("validarExtraccion — reglas AEAT", () => {
   });
 
   it("CIF del emisor con dígito de control erróneo → REQUIERE_REVISION", () => {
-    const r = val(base({ emisor: { nombre: "X", nif_cif: "A28547960" } }));
+    const r = val(base({ emisor: { nombre: "X", nif_cif: "A28547960", pais: null } }));
     expect(r.nifEmisorValido).toBe(false);
     expect(r.estado).toBe("REQUIERE_REVISION");
     expect(r.ivaDeducible).toBe(false);
@@ -111,7 +111,7 @@ describe("validarExtraccion — reglas AEAT", () => {
   });
 
   it("factura completa sin número → revisión", () => {
-    const r = val(base({ datos_factura: { numero_factura: null, fecha_emision: "2026-10-10" } }));
+    const r = val(base({ datos_factura: { numero_factura: null, fecha_emision: "2026-10-10", moneda: null } }));
     expect(r.estado).toBe("REQUIERE_REVISION");
   });
 
@@ -123,13 +123,13 @@ describe("validarExtraccion — reglas AEAT", () => {
   });
 
   it("fecha imposible (31 de febrero) → revisión", () => {
-    const r = val(base({ datos_factura: { numero_factura: "1", fecha_emision: "2026-02-31" } }));
+    const r = val(base({ datos_factura: { numero_factura: "1", fecha_emision: "2026-02-31", moneda: null } }));
     expect(r.fechaEmision).toBeNull();
     expect(r.estado).toBe("REQUIERE_REVISION");
   });
 
   it("fecha futura → revisión", () => {
-    const r = val(base({ datos_factura: { numero_factura: "1", fecha_emision: "2027-01-10" } }));
+    const r = val(base({ datos_factura: { numero_factura: "1", fecha_emision: "2027-01-10", moneda: null } }));
     expect(r.estado).toBe("REQUIERE_REVISION");
     expect(r.motivos.join(" ")).toMatch(/posterior a hoy/);
   });
@@ -208,5 +208,35 @@ describe("mensajeWhatsapp: sin puntos duplicados", () => {
     const { mensajeWhatsapp } = await import("../fiscal");
     const m = mensajeWhatsapp({ estado: "REQUIERE_REVISION", tipoDocumento: "FACTURA_SIMPLIFICADA", ivaDeducible: false, emisorNombre: null, numeroFactura: null, totalFactura: 1, motivos: ["Tipo de IVA del 18 % no reconocido (válidos: 0, 4, 10 y 21 %)."] });
     expect(m).toBe("Recibido, pero necesita revisión: Tipo de IVA del 18 % no reconocido (válidos: 0, 4, 10 y 21 %). Su gestoría lo revisará.");
+  });
+});
+
+describe("justificantes de otro país o moneda", () => {
+  const simplif = (cambios: Partial<Extraccion> = {}) =>
+    base({ tipo_documento: "FACTURA_SIMPLIFICADA", receptor: { nombre: null, nif_cif: null }, ...cambios });
+
+  it("moneda distinta del euro exige revisión y es el primer motivo", () => {
+    const r = val(simplif({ datos_factura: { numero_factura: "1", fecha_emision: "2026-10-10", moneda: "PEN" } as Extraccion["datos_factura"] }));
+    expect(r.estado).toBe("REQUIERE_REVISION");
+    expect(r.motivos[0]).toMatch(/PEN/);
+    expect(r.moneda).toBe("PEN");
+    expect(r.mensajeWhatsapp).toMatch(/Justificante en PEN/);
+  });
+  it("emisor de otro país exige revisión", () => {
+    const r = val(simplif({ emisor: { nombre: "Repsol Perú", nif_cif: "20503840121", pais: "PE" } as Extraccion["emisor"] }));
+    expect(r.estado).toBe("REQUIERE_REVISION");
+    expect(r.motivos.some((m) => /otro país \(PE\)/.test(m))).toBe(true);
+  });
+  it("€, EUR, vacío y país ES no se consideran extranjeros", () => {
+    for (const moneda of ["€", "eur", "EUR", null]) {
+      const r = val(base({ datos_factura: { numero_factura: "2026/1", fecha_emision: "2026-10-10", moneda } as Extraccion["datos_factura"], emisor: { nombre: "P", nif_cif: PROVEEDOR_CIF, pais: "es" } as Extraccion["emisor"] }));
+      expect(r.estado).toBe("VALIDO");
+      expect(r.moneda).toBe("EUR");
+    }
+  });
+  it("parseExtraccion conserva moneda y país de la IA", () => {
+    const e = parseExtraccion(JSON.stringify({ estado_documento: "VALIDO", tipo_documento: "FACTURA_SIMPLIFICADA", emisor: { nombre: "X", nif_cif: null, pais: "PE" }, datos_factura: { numero_factura: null, fecha_emision: null, moneda: "pen" }, desglose_impuestos: [], total_factura: 1, confianza_extraccion: 0.9 }));
+    expect(e.emisor.pais).toBe("PE");
+    expect(e.datos_factura.moneda).toBe("pen");
   });
 });

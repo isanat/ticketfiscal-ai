@@ -48,7 +48,8 @@ Responde ÚNICAMENTE con un objeto JSON válido siguiendo esta estructura exacta
   "iva_deducible": boolean,
   "emisor": {
     "nombre": "string o null",
-    "nif_cif": "string limpio sin guiones ni espacios o null"
+    "nif_cif": "string limpio sin guiones ni espacios o null",
+    "pais": "código ISO 3166-1 alfa-2 del país del emisor si se puede identificar (ES, PE, FR…), o null"
   },
   "receptor": {
     "nombre": "string o null",
@@ -57,7 +58,7 @@ Responde ÚNICAMENTE con un objeto JSON válido siguiendo esta estructura exacta
   "datos_factura": {
     "numero_factura": "string o null",
     "fecha_emision": "YYYY-MM-DD o null",
-    "moneda": "EUR"
+    "moneda": "código ISO 4217 de la moneda impresa en el justificante (EUR, USD, PEN…); si solo ves el símbolo, deduce el código; EUR si no hay indicación"
   },
   "desglose_impuestos": [
     {
@@ -96,17 +97,17 @@ export const ExtraccionSchema = z.object({
   tipo_documento: z.enum(["FACTURA_COMPLETA", "FACTURA_SIMPLIFICADA", "NO_VALIDO"]).catch("NO_VALIDO"),
   iva_deducible: z.boolean().catch(false),
   emisor: z
-    .object({ nombre: texto, nif_cif: texto })
+    .object({ nombre: texto, nif_cif: texto, pais: texto })
     .nullish()
-    .transform((v) => v ?? { nombre: null, nif_cif: null }),
+    .transform((v) => ({ nombre: v?.nombre ?? null, nif_cif: v?.nif_cif ?? null, pais: v?.pais ?? null })),
   receptor: z
     .object({ nombre: texto, nif_cif: texto })
     .nullish()
     .transform((v) => v ?? { nombre: null, nif_cif: null }),
   datos_factura: z
-    .object({ numero_factura: texto, fecha_emision: texto })
+    .object({ numero_factura: texto, fecha_emision: texto, moneda: texto })
     .nullish()
-    .transform((v) => v ?? { numero_factura: null, fecha_emision: null }),
+    .transform((v) => ({ numero_factura: v?.numero_factura ?? null, fecha_emision: v?.fecha_emision ?? null, moneda: v?.moneda ?? null })),
   desglose_impuestos: z
     .array(
       z.object({
@@ -241,6 +242,23 @@ export function mensajeWhatsapp(r: Pick<ResultadoFiscal, "estado" | "tipoDocumen
  * Validación determinista de la extracción. Pura y sin red: recibe la salida de la IA
  * y devuelve el estado final. El estado nunca mejora lo que dicen las reglas.
  */
+/** Normaliza el código de moneda. Vacío o «€» se consideran euros. */
+export function normalizarMoneda(m: string | null | undefined): string {
+  const t = (m ?? "").trim().toUpperCase().replace(/\./g, "");
+  if (!t || t === "€" || t === "EUR" || t === "EUROS" || t === "EURO") return "EUR";
+  return t.slice(0, 8);
+}
+
+/** Motivos de un justificante que no es español: se revisan siempre, no los decide la IA. */
+export function motivosExtranjero(moneda: string | null | undefined, pais: string | null | undefined): string[] {
+  const out: string[] = [];
+  const m = normalizarMoneda(moneda);
+  if (m !== "EUR") out.push(`Justificante en ${m}: solo se registran gastos en euros. Su gestoría decidirá si procede y con qué tipo de cambio.`);
+  const p = (pais ?? "").trim().toUpperCase();
+  if (p && p !== "ES") out.push(`Emisor de otro país (${p}): no lleva IVA español. Su gestoría decidirá su tratamiento fiscal.`);
+  return out;
+}
+
 export function validarExtraccion(ext: Extraccion, ctx: ContextoValidacion): ResultadoFiscal {
   const hoy = ctx.hoy ?? new Date();
   const motivos: string[] = [];
@@ -275,6 +293,9 @@ export function validarExtraccion(ext: Extraccion, ctx: ContextoValidacion): Res
     };
     return { ...r, mensajeWhatsapp: mensajeWhatsapp(r) };
   }
+
+  // --- Justificantes de otro país o moneda (primero: es el motivo que debe leer el cliente)
+  motivos.push(...motivosExtranjero(ext.datos_factura.moneda, ext.emisor.pais));
 
   // --- Líneas de IVA (en céntimos)
   const lineasC: LineaCentimos[] = ext.desglose_impuestos.map((l, i) => ({
@@ -389,7 +410,7 @@ export function validarExtraccion(ext: Extraccion, ctx: ContextoValidacion): Res
     nifReceptorValido,
     numeroFactura,
     fechaEmision: fecha,
-    moneda: "EUR",
+    moneda: normalizarMoneda(ext.datos_factura.moneda),
     lineas,
     baseImponible: aEuros(baseC),
     porcentajeIva: porcentajeEfectivo,
