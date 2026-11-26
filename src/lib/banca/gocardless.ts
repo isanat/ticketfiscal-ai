@@ -3,8 +3,8 @@
 // ESTADO: PREPARADO, SIN VERIFICAR CONTRA EL SERVICIO REAL.
 //  - Se escribió a partir de la documentación pública de la API v2; desde el entorno de desarrollo
 //    no se puede alcanzar el host, así que no se ha probado con credenciales ni con un banco.
-//  - GoCardless ha limitado las altas nuevas de esta API: puede que no se obtengan credenciales.
-//    Verifíquelo en su panel antes de comprometer una fecha. La importación CSV/Norma 43 no depende de esto.
+//  - Fuentes secundarias indican que GoCardless ha CERRADO las altas nuevas de esta API (nov. 2026): puede que
+//    no se puedan obtener credenciales. Verifíquelo en su panel; si es así, sustituya el proveedor. La importación CSV/Norma 43 no depende de esto.
 //  - Los formatos de respuesta están cubiertos por pruebas con cargas de ejemplo; hay que contrastarlos
 //    con respuestas reales (sandbox "SANDBOXFINANCE_SFIN0000") antes de activarlo en producción.
 import { asignarIdsEstables, type MovimientoLeido } from "../extracto";
