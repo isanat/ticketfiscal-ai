@@ -11,8 +11,8 @@ jobs:
     timeout-minutes: 15
     env:
       # Valores ficticios: el build no conecta con la base de datos (las rutas son dinámicas).
-      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
-      DIRECT_URL: postgresql://ci:ci@localhost:5432/ci
+      STORAGE_POSTGRES_PRISMA_URL: postgresql://ci:ci@localhost:5432/ci
+      STORAGE_POSTGRES_URL_NON_POOLING: postgresql://ci:ci@localhost:5432/ci
     services:
       postgres:
         image: postgres:16

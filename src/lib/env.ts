@@ -4,8 +4,9 @@ import { z } from "zod";
 
 const esquema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  DATABASE_URL: z.string().min(1, "DATABASE_URL es obligatoria (Neon, URL con pooler)"),
-  DIRECT_URL: z.string().min(1).optional(),
+  // Variables inyectadas por la integración Neon de Vercel. Ver prisma/schema.prisma.
+  STORAGE_POSTGRES_PRISMA_URL: z.string().min(1, "STORAGE_POSTGRES_PRISMA_URL es obligatoria (Neon, pooler)"),
+  STORAGE_POSTGRES_URL_NON_POOLING: z.string().min(1).optional(),
   DEMO_MODE: z
     .enum(["true", "false"])
     .default("false")

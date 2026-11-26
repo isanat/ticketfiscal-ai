@@ -9,9 +9,10 @@ generator client {
 datasource db {
   provider  = "postgresql"
   // Conexión agrupada (pooler de Neon) para el runtime serverless.
-  url       = env("DATABASE_URL")
+  // Nombres de las variables que inyecta la integración Neon de Vercel (store STORAGE_*).
+  url       = env("STORAGE_POSTGRES_PRISMA_URL")
   // Conexión directa, usada solo por `prisma migrate`.
-  directUrl = env("DIRECT_URL")
+  directUrl = env("STORAGE_POSTGRES_URL_NON_POOLING")
 }
 
 enum Rol {

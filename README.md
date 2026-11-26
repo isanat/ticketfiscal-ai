@@ -52,7 +52,7 @@ Requisitos: Node 22+, [Bun](https://bun.sh) y una base de datos PostgreSQL (un p
 
 ```bash
 bun install                      # ejecuta prisma generate
-cp .env.example .env             # rellene DATABASE_URL y DIRECT_URL
+cp .env.example .env             # rellene STORAGE_POSTGRES_PRISMA_URL y STORAGE_POSTGRES_URL_NON_POOLING
 bun run db:deploy                # aplica las migraciones
 SEED_DEMO=true bun run db:seed   # cartera de demostración (idempotente)
 bun run dev                      # http://localhost:3000
@@ -72,26 +72,26 @@ Cuentas de demostración (solo con `SEED_DEMO=true`):
 1. Cree un proyecto en Neon con región **AWS eu-central-1 (Frankfurt)**.
 2. Use ramas: `main` para producción y una rama por entorno de preview (Neon permite crear ramas desde la producción en segundos, con datos copiados).
 3. De cada rama copie dos cadenas:
-   - **Pooled** (host con `-pooler`) → `DATABASE_URL`, añadiendo `?sslmode=require&pgbouncer=true&connection_limit=1`.
-   - **Directa** (sin `-pooler`) → `DIRECT_URL`, con `?sslmode=require`.
+   - **Pooled** (host con `-pooler`) → `STORAGE_POSTGRES_PRISMA_URL` (la integración Neon de Vercel ya la incluye con `pgbouncer=true`).
+   - **Directa** (sin `-pooler`) → `STORAGE_POSTGRES_URL_NON_POOLING`.
 
 ### 2. Variables de entorno (Vercel → Settings → Environment Variables)
 
 | Variable | Producción | Preview | Obligatoria |
 | --- | --- | --- | --- |
-| `DATABASE_URL` | rama `main` (pooled) | rama de preview (pooled) | Sí |
-| `DIRECT_URL` | rama `main` (directa) | rama de preview (directa) | Sí (migraciones) |
+| `STORAGE_POSTGRES_PRISMA_URL` | rama `main` (pooled) | rama de preview (pooled) | Sí (la inyecta la integración Neon) |
+| `STORAGE_POSTGRES_URL_NON_POOLING` | rama `main` (directa) | rama de preview (directa) | Sí (migraciones) |
 | `ZAI_BASE_URL`, `ZAI_API_KEY` | ✔ | ✔ | Sí, para extraer justificantes |
 | `DEMO_MODE` | `false` | opcional | No |
 | `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | ✔ | opcional | Solo para el canal WhatsApp |
 
-**No active `SEED_DEMO` ni `DEMO_MODE` en producción.** La aplicación falla al arrancar si falta `DATABASE_URL`; no hay modo memoria.
+**No active `SEED_DEMO` ni `DEMO_MODE` en producción.** La aplicación falla al arrancar si falta `STORAGE_POSTGRES_PRISMA_URL`; no hay modo memoria.
 
 ### 3. Build y migraciones
 
 `vercel-build` ejecuta `prisma migrate deploy && next build`. Cada despliegue aplica las migraciones pendientes antes de publicar. Si una migración falla, el despliegue falla y la versión anterior sigue activa.
 
-Para una base nueva, siembre la demo una sola vez desde su máquina con la `DIRECT_URL` de la rama correspondiente. No la siembre en producción real.
+Para una base nueva, siembre la demo una sola vez desde su máquina con la `STORAGE_POSTGRES_URL_NON_POOLING` de la rama correspondiente. No la siembre en producción real.
 
 ### 4. WhatsApp Cloud API
 

@@ -2,7 +2,7 @@
 // En producción exige además ALLOW_DEMO_IN_PRODUCTION=true, para no crear cuentas de
 // demostración con contraseña conocida por error.
 //
-// Uso: bun run db:seed   (requiere DATABASE_URL o DIRECT_URL)
+// Uso: bun run db:seed   (requiere STORAGE_POSTGRES_PRISMA_URL o STORAGE_POSTGRES_URL_NON_POOLING)
 import { createHash } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "../src/lib/hash";
