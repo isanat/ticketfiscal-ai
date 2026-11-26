@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   Check,
   X,
+  Wallet,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,12 +44,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ConciliacionView } from "@/components/fiscal/conciliacion-view";
 import { toast } from "@/hooks/use-toast";
 import { etiquetaCuenta } from "@/lib/fiscal";
 import type { Documento, EmpresaResumen, UsuarioSesion } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type Vista = "resumen" | "empresas" | "bandeja" | "exportar";
+type Vista = "resumen" | "empresas" | "bandeja" | "conciliacion" | "exportar";
 
 export function GestorPortal({
   usuario,
@@ -220,6 +222,7 @@ export function GestorPortal({
     { id: "resumen", etiqueta: "Resumen", icono: <LayoutDashboard className="h-4 w-4" /> },
     { id: "empresas", etiqueta: "Empresas", icono: <Building2 className="h-4 w-4" />, contador: empresas.length },
     { id: "bandeja", etiqueta: "Bandeja de revisión", icono: <Inbox className="h-4 w-4" />, contador: bandeja.length },
+    { id: "conciliacion", etiqueta: "Conciliación", icono: <Wallet className="h-4 w-4" /> },
     { id: "exportar", etiqueta: "Exportar", icono: <FileDown className="h-4 w-4" /> },
   ];
 
@@ -319,6 +322,7 @@ export function GestorPortal({
                   {vista === "resumen" && "Resumen de la cartera"}
                   {vista === "empresas" && "Empresas de la gestoría"}
                   {vista === "bandeja" && "Bandeja de revisión"}
+                  {vista === "conciliacion" && "Conciliación bancaria"}
                   {vista === "exportar" && "Exportar lote de asientos"}
                 </h1>
                 <p className="text-xs text-muted-foreground">
@@ -585,6 +589,10 @@ export function GestorPortal({
                     </div>
                   )}
                 </div>
+              )}
+
+              {vista === "conciliacion" && (
+                <ConciliacionView empresas={empresas} empresaInicial={empresaFiltro !== "todas" ? empresaFiltro : undefined} />
               )}
 
               {vista === "exportar" && (
