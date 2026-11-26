@@ -11,6 +11,7 @@ import {
   BadgeCheck,
   TriangleAlert,
   Calculator,
+  Wallet,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { ConciliacionView } from "@/components/fiscal/conciliacion-view";
 import { WhatsAppChat } from "@/components/fiscal/whatsapp-chat";
 import { etiquetaCuenta } from "@/lib/fiscal";
 import { eur, fechaEs, num2 } from "@/lib/format";
@@ -175,6 +177,10 @@ export function ClientePortal({
               <FileStack className="h-4 w-4" />
               Mis justificantes
             </TabsTrigger>
+            <TabsTrigger value="conciliacion" className="flex-1 gap-2 rounded-lg px-4 text-sm sm:flex-none">
+              <Wallet className="h-4 w-4" />
+              Conciliación
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="enviar" className="mt-0">
@@ -193,6 +199,10 @@ export function ClientePortal({
               }}
               onDocumentoProcesado={() => setRefresco((n) => n + 1)}
             />
+          </TabsContent>
+
+          <TabsContent value="conciliacion" className="mt-0">
+            <ConciliacionView empresas={[]} esCliente />
           </TabsContent>
 
           <TabsContent value="mistickets" className="mt-0">

@@ -335,7 +335,7 @@ export function ConciliacionView({
                   <CardTitle className="flex items-center gap-2 font-serif text-base">
                     <ReceiptText className="h-4 w-4 text-amber-600" /> Cargos sin justificante
                   </CardTitle>
-                  <CardDescription>Pagos del banco para los que falta factura o ticket: es lo que hay que reclamar al cliente.</CardDescription>
+                  <CardDescription>{esCliente ? "Pagos de su banco para los que falta la factura o el ticket: envíelos desde «Enviar justificante»." : "Pagos del banco para los que falta factura o ticket: es lo que hay que reclamar al cliente."}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <TablaMov filas={vista.movimientosSinDocumento} vacio="Todos los cargos tienen justificante." />
