@@ -125,6 +125,11 @@ export async function enviarTexto(numero: string, texto: string): Promise<boolea
     body: JSON.stringify({ messaging_product: "whatsapp", to: numero, type: "text", text: { body: texto.slice(0, 4000) } }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
+  if (!res.ok) {
+    // Solo código y tipo del error de Meta (sin mensaje, que puede incluir datos del usuario).
+    const e = ((await res.json().catch(() => ({}))) as { error?: { code?: number; type?: string; error_subcode?: number } }).error;
+    log("warn", "whatsapp.envio_fallido", { status: res.status, codigo: e?.code, subcodigo: e?.error_subcode, tipo: e?.type });
+  }
   return res.ok;
 }
 
