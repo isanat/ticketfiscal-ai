@@ -26,6 +26,10 @@ export interface OpcionesVision {
   onUso?: (uso: UsoTokens) => void;
   /** Fuerza un proveedor concreto (para evaluaciones comparativas). */
   proveedor?: Proveedor;
+  /** Tiempo máximo por llamada (por defecto 45 s). */
+  timeoutMs?: number;
+  /** Intentos máximos ante fallos transitorios (por defecto 3). */
+  intentos?: number;
 }
 
 const TIMEOUT_MS = 45_000;
@@ -36,9 +40,9 @@ class ErrorTransitorio extends Error {}
 const esperar = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Reintenta solo errores transitorios. Los demás fallan al instante. */
-async function conReintentos<T>(proveedor: Proveedor, operacion: () => Promise<T>): Promise<T> {
+async function conReintentos<T>(proveedor: Proveedor, operacion: () => Promise<T>, intentosMax: number = INTENTOS): Promise<T> {
   let ultimo: unknown = null;
-  for (let intento = 1; intento <= INTENTOS; intento++) {
+  for (let intento = 1; intento <= intentosMax; intento++) {
     try {
       return await operacion();
     } catch (e) {
@@ -46,9 +50,9 @@ async function conReintentos<T>(proveedor: Proveedor, operacion: () => Promise<T
       ultimo = e;
     }
     log("warn", "vision.reintento", { proveedor, intento, motivo: mensajeError(ultimo) });
-    if (intento < INTENTOS) await esperar(600 * 2 ** (intento - 1));
+    if (intento < intentosMax) await esperar(600 * 2 ** (intento - 1));
   }
-  throw new MotorVisionNoDisponible(`${proveedor}: sin respuesta tras ${INTENTOS} intentos`);
+  throw new MotorVisionNoDisponible(`${proveedor}: sin respuesta tras ${intentosMax} intentos`);
 }
 
 /** Traduce el estado HTTP: transitorio (reintentable) o definitivo. 529 es sobrecarga de Anthropic. */
@@ -81,7 +85,7 @@ export function construirPeticionGlm(system: string, partes: ParteEntrada[], mod
   };
 }
 
-async function llamadaGlm(system: string, partes: ParteEntrada[], c: Config): Promise<{ texto: string; uso?: UsoTokens }> {
+async function llamadaGlm(system: string, partes: ParteEntrada[], c: Config, o: OpcionesVision): Promise<{ texto: string; uso?: UsoTokens }> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${c.ZAI_API_KEY}`,
@@ -97,7 +101,7 @@ async function llamadaGlm(system: string, partes: ParteEntrada[], c: Config): Pr
       method: "POST",
       headers,
       body,
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(o.timeoutMs ?? TIMEOUT_MS),
     });
     comprobarEstado(res, "glm");
     const json = (await res.json()) as {
@@ -110,7 +114,7 @@ async function llamadaGlm(system: string, partes: ParteEntrada[], c: Config): Pr
       ? { entrada: json.usage.prompt_tokens ?? 0, salida: json.usage.completion_tokens ?? 0 }
       : undefined;
     return { texto, uso };
-  });
+  }, o.intentos);
 }
 
 // ------------------------------------------------------------------ Gemini
@@ -160,7 +164,7 @@ export function extraerRespuestaGemini(json: RespuestaGemini): { texto: string; 
   return { texto, uso };
 }
 
-async function llamadaGemini(system: string, partes: ParteEntrada[], c: Config): Promise<{ texto: string; uso?: UsoTokens }> {
+async function llamadaGemini(system: string, partes: ParteEntrada[], c: Config, o: OpcionesVision): Promise<{ texto: string; uso?: UsoTokens }> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(c.GEMINI_MODEL)}:generateContent`;
   const body = JSON.stringify(construirPeticionGemini(system, partes));
 
@@ -169,11 +173,11 @@ async function llamadaGemini(system: string, partes: ParteEntrada[], c: Config):
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": c.GEMINI_API_KEY ?? "" },
       body,
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(o.timeoutMs ?? TIMEOUT_MS),
     });
     comprobarEstado(res, "gemini");
     return extraerRespuestaGemini((await res.json()) as RespuestaGemini);
-  });
+  }, o.intentos);
 }
 
 // ------------------------------------------------------------------ Anthropic (Claude)
@@ -217,7 +221,7 @@ export function extraerRespuestaAnthropic(json: RespuestaAnthropic): { texto: st
   return { texto, uso };
 }
 
-async function llamadaAnthropic(system: string, partes: ParteEntrada[], c: Config): Promise<{ texto: string; uso?: UsoTokens }> {
+async function llamadaAnthropic(system: string, partes: ParteEntrada[], c: Config, o: OpcionesVision): Promise<{ texto: string; uso?: UsoTokens }> {
   const body = JSON.stringify(construirPeticionAnthropic(system, partes, c.ANTHROPIC_MODEL));
 
   return conReintentos("anthropic", async () => {
@@ -229,11 +233,11 @@ async function llamadaAnthropic(system: string, partes: ParteEntrada[], c: Confi
         "anthropic-version": "2023-06-01",
       },
       body,
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(o.timeoutMs ?? TIMEOUT_MS),
     });
     comprobarEstado(res, "anthropic");
     return extraerRespuestaAnthropic((await res.json()) as RespuestaAnthropic);
-  });
+  }, o.intentos);
 }
 
 // ------------------------------------------------------------------ Selección y coste
@@ -293,10 +297,10 @@ export async function extraerConVision(system: string, partes: ParteEntrada[], o
   if (proveedor) {
     const r =
       proveedor === "anthropic"
-        ? await llamadaAnthropic(system, partes, c)
+        ? await llamadaAnthropic(system, partes, c, opciones)
         : proveedor === "gemini"
-          ? await llamadaGemini(system, partes, c)
-          : await llamadaGlm(system, partes, c);
+          ? await llamadaGemini(system, partes, c, opciones)
+          : await llamadaGlm(system, partes, c, opciones);
     if (r.uso) {
       opciones.onUso?.(r.uso);
       const t = tarifasProveedor(proveedor, c);

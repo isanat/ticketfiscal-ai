@@ -22,6 +22,24 @@ export async function GET(req: NextRequest) {
   if (!tokenValido(req.nextUrl.searchParams.get("t"))) {
     return new NextResponse("Not found", { status: 404 });
   }
+  // Diagnóstico: modelos Gemini disponibles para la clave (solo nombres).
+  if (req.nextUrl.searchParams.get("modo") === "modelos") {
+    try {
+      const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200", {
+        headers: { "x-goog-api-key": process.env.GEMINI_API_KEY ?? "" },
+        signal: AbortSignal.timeout(20000),
+      });
+      const j = (await r.json()) as { models?: Array<{ name: string; supportedGenerationMethods?: string[] }> };
+      const nombres = (j.models ?? [])
+        .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
+        .map((m) => m.name.replace("models/", ""))
+        .filter((n) => /flash|pro/.test(n));
+      return NextResponse.json({ status: r.status, modelos: nombres });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   // Diagnóstico: una petición mínima a Gemini, sin devolver la clave.
   if (req.nextUrl.searchParams.get("modo") === "ping") {
     const clave = process.env.GEMINI_API_KEY ?? "";

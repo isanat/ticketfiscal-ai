@@ -68,7 +68,7 @@ export async function evaluarCaso(c: CasoEval, leer: (archivo: string) => Buffer
   const inicio = Date.now();
   let uso: UsoTokens | undefined;
   try {
-    const raw = await extraerConVision(FISCAL_SYSTEM_PROMPT, partes, { onUso: (u) => (uso = u), proveedor });
+    const raw = await extraerConVision(FISCAL_SYSTEM_PROMPT, partes, { onUso: (u) => (uso = u), proveedor, timeoutMs: 18_000, intentos: 2 });
     const ms = Date.now() - inicio;
     const r = validarExtraccion(parseExtraccion(raw), { nifEmpresa: NIF_EMPRESA_EVAL });
     const e = c.esperado;
