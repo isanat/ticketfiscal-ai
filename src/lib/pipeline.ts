@@ -13,7 +13,7 @@ import {
   validarExtraccion,
   type ResultadoFiscal,
 } from "./fiscal";
-import { MotorVisionNoDisponible, extraerConVision } from "./vision";
+import { MotorVisionNoDisponible, extraerConVision, type ParteEntrada } from "./vision";
 import {
   aDocumento,
   buscarDuplicadoPorNumero,
@@ -105,23 +105,18 @@ function extraccionDemo(nombre: string | null, empresaId: string): ResultadoFisc
 }
 
 async function extraerYValidar(e: EntradaJustificante): Promise<ResultadoFiscal> {
-  const dataUrl = `data:${e.mime};base64,${e.bytes.toString("base64")}`;
-  const adjunto =
-    e.mime === "application/pdf"
-      ? { type: "file_url", file_url: { url: dataUrl } }
-      : { type: "image_url", image_url: { url: dataUrl } };
-  const contenido = [
+  const partes: ParteEntrada[] = [
     {
-      type: "text",
-      text: `Analiza este justificante de gasto de la empresa ${e.empresa.nombre} (NIF ${e.empresa.nif}). Devuelve solo el JSON estricto.`,
+      tipo: "texto",
+      texto: `Analiza este justificante de gasto de la empresa ${e.empresa.nombre} (NIF ${e.empresa.nif}). Devuelve solo el JSON estricto.`,
     },
-    adjunto,
+    { tipo: "archivo", mime: e.mime, base64: e.bytes.toString("base64") },
   ];
 
   // Un reintento si la respuesta no es JSON válido; los fallos del motor ya se reintentan dentro.
   let ultimo: unknown = null;
   for (let intento = 1; intento <= 2; intento++) {
-    const raw = await extraerConVision(FISCAL_SYSTEM_PROMPT, contenido);
+    const raw = await extraerConVision(FISCAL_SYSTEM_PROMPT, partes);
     try {
       return validarExtraccion(parseExtraccion(raw), { nifEmpresa: e.empresa.nif });
     } catch (err) {

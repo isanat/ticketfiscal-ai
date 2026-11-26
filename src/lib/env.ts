@@ -19,6 +19,13 @@ const esquema = z.object({
   ZAI_BASE_URL: z.string().url().optional(),
   ZAI_API_KEY: z.string().min(1).optional(),
   ZAI_MODEL: z.string().default("glm-5.3-flash"),
+  // Proveedor de visión: "auto" usa GLM si hay ZAI_* y si no Gemini si hay GEMINI_API_KEY.
+  VISION_PROVIDER: z.enum(["auto", "glm", "gemini"]).default("auto"),
+  GEMINI_API_KEY: z.string().min(10).optional(),
+  GEMINI_MODEL: z.string().default("gemini-flash-latest"),
+  // Tarifas en USD por millón de tokens (de la tabla oficial vigente). Sin ellas solo se registran tokens.
+  GEMINI_PRECIO_ENTRADA_USD_M: z.coerce.number().nonnegative().optional(),
+  GEMINI_PRECIO_SALIDA_USD_M: z.coerce.number().nonnegative().optional(),
   ZAI_TOKEN: z.string().optional(),
   ZAI_CHAT_ID: z.string().optional(),
   ZAI_USER_ID: z.string().optional(),
