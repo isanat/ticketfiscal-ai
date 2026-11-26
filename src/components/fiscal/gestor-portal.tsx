@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/table";
 import { ConciliacionView } from "@/components/fiscal/conciliacion-view";
 import { toast } from "@/hooks/use-toast";
+import { eur, fechaEs, num2 } from "@/lib/format";
 import { etiquetaCuenta } from "@/lib/fiscal";
 import type { Documento, EmpresaResumen, UsuarioSesion } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -366,11 +367,11 @@ export function GestorPortal({
                   <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
                     <Kpi icono={<Inbox className="h-5 w-5 text-primary" />} valor={filtrados.length} etiqueta="Documentos en el lote" fondo="bg-secondary" />
                     <Kpi icono={<TriangleAlert className="h-5 w-5 text-amber-600" />} valor={resumen.pendientes} etiqueta="Pendientes de revisión" fondo="bg-amber-100" />
-                    <Kpi icono={<CheckCircle2 className="h-5 w-5 text-emerald-700" />} valor={`${resumen.ivaDeducible.toFixed(2)} €`} etiqueta="IVA soportado deducible" fondo="bg-emerald-100" />
-                    <Kpi icono={<Calculator className="h-5 w-5 text-primary" />} valor={`${resumen.retenciones.toFixed(2)} €`} etiqueta="Retenciones de IRPF" fondo="bg-secondary" />
+                    <Kpi icono={<CheckCircle2 className="h-5 w-5 text-emerald-700" />} valor={eur(resumen.ivaDeducible)} etiqueta="IVA soportado deducible" fondo="bg-emerald-100" />
+                    <Kpi icono={<Calculator className="h-5 w-5 text-primary" />} valor={eur(resumen.retenciones)} etiqueta="Retenciones de IRPF" fondo="bg-secondary" />
                   </div>
 
-                  <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
+                  <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_320px]">
                     <TablaDocumentos
                       docs={filtrados}
                       nombresEmpresas={nombresEmpresas}
@@ -409,13 +410,13 @@ export function GestorPortal({
                               <div className="flex items-baseline justify-between">
                                 <span className="text-sm text-muted-foreground">Base: </span>
                                 <span className="text-sm font-medium tabular-nums">
-                                  {linea.base.toFixed(2)} €
+                                  {eur(linea.base)}
                                 </span>
                               </div>
                               <div className="flex items-baseline justify-between">
                                 <span className="text-sm text-muted-foreground">Cuota soportada: </span>
                                 <span className="text-base font-bold tabular-nums text-emerald-700">
-                                  {linea.cuota.toFixed(2)} €
+                                  {eur(linea.cuota)}
                                 </span>
                               </div>
                             </div>
@@ -431,7 +432,7 @@ export function GestorPortal({
                           <div className="flex items-baseline justify-between">
                             <span className="text-sm font-semibold">Total IVA soportado</span>
                             <span className="text-xl font-bold tabular-nums text-emerald-700">
-                              {resumen.ivaDeducible.toFixed(2)} €
+                              {eur(resumen.ivaDeducible)}
                             </span>
                           </div>
                           <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
@@ -502,7 +503,7 @@ export function GestorPortal({
                           <div>
                             <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">IVA sop.</dt>
                             <dd className="text-sm font-bold tabular-nums text-emerald-700">
-                              {e.ivaDeducible.toFixed(0)} €
+                              {eur(e.ivaDeducible)}
                             </dd>
                           </div>
                           <div>
@@ -556,7 +557,7 @@ export function GestorPortal({
                                   {nombresEmpresas.get(d.empresaId) ?? "Empresa"}
                                 </span>
                                 <span className="text-xs text-muted-foreground">
-                                  {d.numeroFactura ?? "sin número"} · {d.fechaEmision ?? "sin fecha"}
+                                  {d.numeroFactura ?? "sin número"} · {d.fechaEmision ? fechaEs(d.fechaEmision) : "sin fecha"}
                                 </span>
                               </div>
                               <p className="text-sm leading-relaxed text-foreground/90">
@@ -649,9 +650,9 @@ export function GestorPortal({
                           {filtrados.length} asientos listos para exportar
                         </p>
                         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                          Base imponible total: {filtrados.reduce((s, d) => s + d.baseImponible, 0).toFixed(2)} € ·
-                          IVA soportado deducible: {resumen.ivaDeducible.toFixed(2)} € ·
-                          Retenciones: {resumen.retenciones.toFixed(2)} €.
+                          Base imponible total: {eur(filtrados.reduce((s, d) => s + d.baseImponible, 0))} ·
+                          IVA soportado deducible: {eur(resumen.ivaDeducible)} ·
+                          Retenciones: {eur(resumen.retenciones)}.
                           Los documentos en estado «A revisar» o «Ilegible» se incluyen marcados
                           para que decida si los contabiliza.
                         </p>
@@ -780,7 +781,7 @@ function TablaDocumentos({
                 {docs.map((d) => (
                   <TableRow key={d.id} className="cursor-pointer" onClick={() => onDetalle(d)}>
                     <TableCell className="whitespace-nowrap text-xs tabular-nums">
-                      {d.fechaEmision ?? "—"}
+                      {fechaEs(d.fechaEmision)}
                     </TableCell>
                     <TableCell className="max-w-[130px]">
                       <p className="truncate text-xs font-medium">
@@ -795,14 +796,14 @@ function TablaDocumentos({
                     </TableCell>
                     <TableCell className="text-xs font-mono">{d.cuentaPgc ?? "—"}</TableCell>
                     <TableCell className="text-right text-xs tabular-nums">
-                      {d.baseImponible.toFixed(2)}
+                      {num2(d.baseImponible)}
                     </TableCell>
                     <TableCell className="text-right text-xs tabular-nums">
-                      {d.cuotaIva.toFixed(2)}
+                      {num2(d.cuotaIva)}
                       <span className="text-[10px] text-muted-foreground"> ({d.porcentajeIva}%)</span>
                     </TableCell>
                     <TableCell className="text-right text-xs font-semibold tabular-nums">
-                      {d.totalFactura.toFixed(2)}
+                      {num2(d.totalFactura)}
                     </TableCell>
                     <TableCell className="text-center">
                       <Badge
@@ -912,12 +913,12 @@ function DialogoDetalle({
           : "sin validar",
     ],
     ["Nº factura", doc.numeroFactura ?? "—"],
-    ["Fecha de devengo", doc.fechaEmision ?? "—"],
+    ["Fecha de devengo", fechaEs(doc.fechaEmision)],
     ["Cuenta PGC", etiquetaCuenta(doc.cuentaPgc)],
-    ["Base imponible", `${doc.baseImponible.toFixed(2)} €`],
-    [`Cuota IVA soportada (${doc.porcentajeIva}%)`, `${doc.cuotaIva.toFixed(2)} €`],
-    ["Retención IRPF", doc.irpfImporte > 0 ? `${doc.irpfImporte.toFixed(2)} € (${doc.irpfPorcentaje}%)` : "—"],
-    ["Total factura", `${doc.totalFactura.toFixed(2)} €`],
+    ["Base imponible", eur(doc.baseImponible)],
+    [`Cuota IVA soportada (${doc.porcentajeIva}%)`, eur(doc.cuotaIva)],
+    ["Retención IRPF", doc.irpfImporte > 0 ? `${eur(doc.irpfImporte)} (${doc.irpfPorcentaje}%)` : "—"],
+    ["Total factura", eur(doc.totalFactura)],
     ["Confianza de extracción", `${Math.round(doc.confianza * 100)}%`],
   ];
 

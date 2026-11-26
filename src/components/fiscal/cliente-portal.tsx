@@ -27,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { WhatsAppChat } from "@/components/fiscal/whatsapp-chat";
 import { etiquetaCuenta } from "@/lib/fiscal";
+import { eur, fechaEs, num2 } from "@/lib/format";
 import type { Documento, UsuarioSesion } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -236,7 +237,7 @@ export function ClientePortal({
                         {docs.map((d) => (
                           <TableRow key={d.id}>
                             <TableCell className="whitespace-nowrap text-xs tabular-nums">
-                              {d.fechaEmision ?? "—"}
+                              {fechaEs(d.fechaEmision)}
                             </TableCell>
                             <TableCell className="max-w-[190px]">
                               <p className="truncate text-xs font-medium">{d.numeroFactura ?? "—"}</p>
@@ -248,14 +249,14 @@ export function ClientePortal({
                               <p className="truncate text-xs">{etiquetaCuenta(d.cuentaPgc)}</p>
                             </TableCell>
                             <TableCell className="text-right text-xs tabular-nums">
-                              {d.baseImponible.toFixed(2)}
+                              {num2(d.baseImponible)}
                             </TableCell>
                             <TableCell className="text-right text-xs tabular-nums">
-                              {d.cuotaIva.toFixed(2)}
+                              {num2(d.cuotaIva)}
                               <span className="text-[10px] text-muted-foreground"> ({d.porcentajeIva}%)</span>
                             </TableCell>
                             <TableCell className="text-right text-xs font-semibold tabular-nums">
-                              {d.totalFactura.toFixed(2)}
+                              {num2(d.totalFactura)}
                             </TableCell>
                             <TableCell className="text-center">
                               <Badge
@@ -290,7 +291,7 @@ export function ClientePortal({
       <footer className="mt-auto border-t bg-white/95">
         <div className="mx-auto flex max-w-6xl flex-col gap-1.5 px-4 py-4 text-center sm:flex-row sm:items-center sm:justify-between sm:text-left">
           <p className="text-xs text-muted-foreground">
-            {resumen.ivaDeducible.toFixed(2)} € de IVA soportado deducible registrados este
+            {eur(resumen.ivaDeducible)} de IVA soportado deducible registrados este
             ejercicio.
           </p>
           <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">

@@ -1,5 +1,6 @@
 "use client";
 
+import { eur } from "@/lib/format";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Image as ImageIcon, Paperclip, Send, Check, CheckCheck, Bot, User, Loader2, AlertTriangle, FileText, BadgeCheck, ShieldAlert } from "lucide-react";
 import { MUESTRAS, type Documento } from "@/lib/types";
@@ -382,15 +383,15 @@ function MiniaturaFiscal({ doc }: { doc: Documento }) {
         </div>
         <div>
           <dt className="inline font-medium">Total: </dt>
-          <dd className="inline font-bold">{doc.totalFactura.toFixed(2)} €</dd>
+          <dd className="inline font-bold">{eur(doc.totalFactura)}</dd>
         </div>
         <div>
           <dt className="inline font-medium">Base: </dt>
-          <dd className="inline">{doc.baseImponible.toFixed(2)} €</dd>
+          <dd className="inline">{eur(doc.baseImponible)}</dd>
         </div>
         <div>
           <dt className="inline font-medium">IVA {doc.porcentajeIva}%: </dt>
-          <dd className="inline">{doc.cuotaIva.toFixed(2)} €</dd>
+          <dd className="inline">{eur(doc.cuotaIva)}</dd>
         </div>
         <div>
           <dt className="inline font-medium">Deducible: </dt>

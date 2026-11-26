@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/hooks/use-toast";
+import { eur, fechaEs } from "@/lib/format";
 import type { EmpresaResumen } from "@/lib/types";
 
 interface Mov {
@@ -55,8 +56,7 @@ interface Vista {
 }
 
 const MAX_BYTES = 2_000_000;
-const eur = (n: number) => new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(n);
-const fecha = (iso: string | null) => (iso ? iso.split("-").reverse().join("/") : "—");
+const fecha = fechaEs;
 
 /** Los extractos de banco (sobre todo Norma 43) suelen venir en ISO-8859-1. */
 async function leerArchivo(f: File): Promise<string> {
