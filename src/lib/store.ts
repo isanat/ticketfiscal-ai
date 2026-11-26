@@ -1,6 +1,10 @@
 // TicketFiscal AI — Capa de acceso a datos con dos backends:
-//  · SQLite + Prisma cuando existe DATABASE_URL (entorno local / servidor propio)
-//  · Memoria con datos de demostración cuando no (p. ej. Vercel sin base de datos)
+//  · SQLite + Prisma cuando existe DATABASE_URL y el archivo es accesible
+//    (entorno local / servidor propio)
+//  · Memoria con datos de demostración en cualquier otro caso (p. ej. Vercel)
+// Si SQLite falla en tiempo de ejecución (ruta inexistente, sistema de
+// archivos de solo lectura, despliegue serverless…), se degrada
+// automáticamente al modo memoria sin romper la demo.
 // El resto de la aplicación solo habla con este módulo.
 
 import { getDb, tieneSqlite } from "./db";
@@ -59,7 +63,10 @@ interface EstadoMemoria {
   documentos: Documento[];
 }
 
-const globalMem = globalThis as unknown as { __ticketfiscalMemoria?: EstadoMemoria };
+const globalMem = globalThis as unknown as {
+  __ticketfiscalMemoria?: EstadoMemoria;
+  __ticketfiscalFalloSqlite?: boolean;
+};
 
 function memoria(): EstadoMemoria {
   globalMem.__ticketfiscalMemoria ??= {
@@ -68,12 +75,32 @@ function memoria(): EstadoMemoria {
   return globalMem.__ticketfiscalMemoria;
 }
 
+// ------------------------------------------------------------------ Resguardo SQLite
+
+/**
+ * Ejecuta una operación contra Prisma y devuelve null si SQLite no está
+ * disponible (sin DATABASE_URL, archivo inaccesible, FS de solo lectura…).
+ * El primer fallo desactiva SQLite para el resto de la vida del proceso.
+ */
+async function conPrisma<T>(op: (db: ReturnType<typeof getDb>) => Promise<T>): Promise<T | null> {
+  if (!tieneSqlite() || globalMem.__ticketfiscalFalloSqlite) return null;
+  try {
+    return await op(getDb());
+  } catch (error) {
+    console.warn(
+      "[store] SQLite no disponible en este entorno; cambiando a modo memoria:",
+      error instanceof Error ? error.message.split("\n")[0] : error
+    );
+    globalMem.__ticketfiscalFalloSqlite = true;
+    return null;
+  }
+}
+
 // ------------------------------------------------------------------ Semilla SQLite
 
 let sembrando: Promise<void> | null = null;
 
-async function asegurarSemilla(): Promise<void> {
-  if (!tieneSqlite()) return;
+async function asegurarSemilla(db: ReturnType<typeof getDb>): Promise<void> {
   if (sembrando) {
     await sembrando;
     return;
@@ -81,7 +108,6 @@ async function asegurarSemilla(): Promise<void> {
   // Siembra el lote de demostración la primera vez que la base está vacía.
   // Se re-evalúa en cada llamada (tras un "borrar todo" se vuelve a sembrar).
   sembrando = (async () => {
-    const db = getDb();
     if ((await db.documento.count()) > 0) return;
     for (const doc of SEMILLA_DOCUMENTOS) {
       const { id, createdAt, ...resto } = doc;
@@ -100,58 +126,63 @@ async function asegurarSemilla(): Promise<void> {
 // ------------------------------------------------------------------ API pública
 
 export function modoDatos(): ModoDatos {
-  return tieneSqlite() ? "sqlite" : "memoria";
+  return tieneSqlite() && !globalMem.__ticketfiscalFalloSqlite ? "sqlite" : "memoria";
 }
 
 export async function listarDocumentos(filtro?: {
   trimestre?: string | null;
 }): Promise<Documento[]> {
-  if (!tieneSqlite()) {
-    const docs = filtro?.trimestre
-      ? memoria().documentos.filter((d) => d.trimestre === filtro.trimestre)
-      : [...memoria().documentos];
-    return docs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }
-  await asegurarSemilla();
-  const db = getDb();
-  const filas = await db.documento.findMany({
-    where: filtro?.trimestre ? { trimestre: filtro.trimestre } : undefined,
-    orderBy: { createdAt: "desc" },
+  const filas = await conPrisma(async (db) => {
+    await asegurarSemilla(db);
+    return db.documento.findMany({
+      where: filtro?.trimestre ? { trimestre: filtro.trimestre } : undefined,
+      orderBy: { createdAt: "desc" },
+    });
   });
-  return (filas as unknown as FilaDocumento[]).map(filaADocumento);
+
+  if (filas !== null) {
+    return (filas as unknown as FilaDocumento[]).map(filaADocumento);
+  }
+
+  const docs = filtro?.trimestre
+    ? memoria().documentos.filter((d) => d.trimestre === filtro.trimestre)
+    : [...memoria().documentos];
+  return docs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function crearDocumento(entrada: EntradaDocumento): Promise<Documento> {
   const trimestre = entrada.trimestre ?? trimestreDe(entrada.fechaEmision);
-  if (!tieneSqlite()) {
-    const doc: Documento = {
-      ...entrada,
-      trimestre,
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-    };
-    memoria().documentos.unshift(doc);
-    return doc;
-  }
-  await asegurarSemilla();
-  const db = getDb();
-  const fila = await db.documento.create({
-    data: { ...entrada, trimestre },
+
+  const fila = await conPrisma(async (db) => {
+    await asegurarSemilla(db);
+    return db.documento.create({ data: { ...entrada, trimestre } });
   });
-  return filaADocumento(fila as unknown as FilaDocumento);
+  if (fila !== null) {
+    return filaADocumento(fila as unknown as FilaDocumento);
+  }
+
+  const doc: Documento = {
+    ...entrada,
+    trimestre,
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+  };
+  memoria().documentos.unshift(doc);
+  return doc;
 }
 
 export async function eliminarDocumento(id?: string | null): Promise<void> {
-  if (!tieneSqlite()) {
-    const m = memoria();
-    m.documentos = id ? m.documentos.filter((d) => d.id !== id) : [];
-    return;
-  }
-  await asegurarSemilla();
-  const db = getDb();
-  if (id) {
-    await db.documento.delete({ where: { id } });
-  } else {
-    await db.documento.deleteMany({});
-  }
+  const ok = await conPrisma(async (db) => {
+    await asegurarSemilla(db);
+    if (id) {
+      await db.documento.delete({ where: { id } });
+    } else {
+      await db.documento.deleteMany({});
+    }
+    return true;
+  });
+  if (ok !== null) return;
+
+  const m = memoria();
+  m.documentos = id ? m.documentos.filter((d) => d.id !== id) : [];
 }
