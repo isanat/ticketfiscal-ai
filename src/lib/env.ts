@@ -67,13 +67,32 @@ let cache: Config | null = null;
 
 export function config(): Config {
   if (cache) return cache;
-  const r = esquema.safeParse(process.env);
-  if (!r.success) {
-    const detalle = r.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-    throw new Error(`Configuración inválida: ${detalle}`);
+  // Una variable OPCIONAL mal escrita (p. ej. una clave truncada) desactiva solo su función: no debe tirar
+  // abajo rutas que no la usan. Las obligatorias sí detienen el arranque. Nunca se registran los valores.
+  const entorno: Record<string, string | undefined> = { ...process.env };
+  const descartadas: string[] = [];
+  for (let vuelta = 0; vuelta < 10; vuelta++) {
+    const r = esquema.safeParse(entorno);
+    if (r.success) {
+      if (descartadas.length > 0) console.warn(`[config] variables opcionales inválidas, ignoradas: ${descartadas.join(", ")}`);
+      cache = r.data;
+      return cache;
+    }
+    const recuperables = new Set<string>();
+    for (const i of r.error.issues) {
+      const clave = String(i.path[0] ?? "");
+      if (clave && esquema.shape[clave as keyof typeof esquema.shape]?.safeParse(undefined).success) recuperables.add(clave);
+    }
+    if (recuperables.size === 0) {
+      const detalle = r.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      throw new Error(`Configuración inválida: ${detalle}`);
+    }
+    for (const k of recuperables) {
+      delete entorno[k];
+      descartadas.push(k);
+    }
   }
-  cache = r.data;
-  return cache;
+  throw new Error("Configuración inválida");
 }
 
 /** true si las credenciales de WhatsApp Cloud API están completas. */

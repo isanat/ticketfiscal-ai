@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createHmac } from "node:crypto";
 import { celdaNumero, celdaTexto } from "@/lib/csv";
 import { detectarMime, decodificarJustificante, MAX_BYTES_JUSTIFICANTE } from "@/lib/archivos";
@@ -176,5 +176,20 @@ describe("variantesNumero (WhatsApp Brasil)", () => {
     const { variantesNumero } = await import("../whatsapp");
     expect(variantesNumero("34600111222")).toEqual(["34600111222"]);
     expect(variantesNumero("551832221111")).toEqual(["551832221111"]);
+  });
+});
+
+describe("config tolerante a opcionales inválidas", () => {
+  it("una clave opcional truncada se ignora y no rompe el resto", async () => {
+    vi.resetModules();
+    const previo = { ...process.env };
+    process.env.ADMIN_ENCRYPTION_KEY = "corta";
+    process.env.STORAGE_POSTGRES_PRISMA_URL = "postgresql://x";
+    process.env.STORAGE_POSTGRES_URL_NON_POOLING = "postgresql://x";
+    const { config } = await import("../env");
+    const c = config();
+    expect(c.ADMIN_ENCRYPTION_KEY).toBeUndefined();
+    expect(c.LIMITE_IA_DIARIO_EMPRESA).toBe(50);
+    process.env = previo;
   });
 });
