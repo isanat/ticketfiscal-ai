@@ -21,9 +21,9 @@ const serifDisplay = Source_Serif_4({
 });
 
 export const metadata: Metadata = {
-  title: "TicketFiscal AI — Plataforma fiscal para gestorías",
+  title: "TicketFiscal AI — Fiscalidad asistida por IA para gestorías",
   description:
-    "Los justificantes de sus clientes por WhatsApp, convertidos en lotes contables validados (AEAT · RD 1619/2012 · PGC) y listos para a3, Sage o Holded. Multi-empresa, validación NIF/CIF y Modelo 303.",
+    "IA que lee los justificantes de sus clientes, motor de reglas AEAT que los valida y cruce con el extracto bancario. Lotes contables listos para a3, Sage o Holded.",
   keywords: [
     "gestoría",
     "asesoría fiscal",
@@ -31,7 +31,7 @@ export const metadata: Metadata = {
     "IVA",
     "Modelo 303",
     "PGC",
-    "VeriFactu",
+    "conciliación bancaria",
     "WhatsApp Business",
     "a3",
     "Sage",
@@ -44,7 +44,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "TicketFiscal AI",
     description:
-      "Del WhatsApp del cliente al asiento contable. Plataforma fiscal multi-empresa para gestorías españolas.",
+      "Del ticket de WhatsApp al asiento contable, verificado y conciliado con el banco.",
     siteName: "TicketFiscal AI",
     type: "website",
   },

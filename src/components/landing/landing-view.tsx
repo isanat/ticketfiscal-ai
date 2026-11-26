@@ -10,7 +10,6 @@ import {
   EyeOff,
   FileCheck2,
   FileDown,
-  KeyRound,
   Landmark,
   Lock,
   Menu,
@@ -36,33 +35,57 @@ type EnlaceSeccion = { etiqueta: string; href: string };
 const ENLACES: EnlaceSeccion[] = [
   { etiqueta: "Producto", href: "#producto" },
   { etiqueta: "Cómo funciona", href: "#como-funciona" },
+  { etiqueta: "Innovación", href: "#innovacion" },
   { etiqueta: "Seguridad", href: "#seguridad" },
 ];
 
 const SELLOS: { icono: LucideIcon; texto: string }[] = [
-  { icono: Lock, texto: "RGPD · Datos en la UE" },
-  { icono: ShieldCheck, texto: "RD 1619/2012" },
-  { icono: FileCheck2, texto: "Modelo 303" },
-  { icono: Server, texto: "Hosting Frankfurt" },
+  { icono: Server, texto: "Base de datos en Frankfurt (UE)" },
+  { icono: ShieldCheck, texto: "Validación según RD 1619/2012" },
+  { icono: Landmark, texto: "Cruce con el extracto bancario" },
+  { icono: Lock, texto: "Auditoría de cada cambio" },
 ];
 
 const PASOS = [
   {
     numero: "01",
-    titulo: "El cliente reenvía el ticket",
-    descripcion: "Una foto por WhatsApp. Sin apps, sin formularios, sin cambiar sus hábitos.",
+    titulo: "El cliente envía la foto",
+    descripcion: "Por WhatsApp o desde el portal. Sin instalar nada y sin cambiar sus hábitos.",
   },
   {
     numero: "02",
-    titulo: "La IA extrae y valida",
+    titulo: "La IA lee, las reglas deciden",
     descripcion:
-      "NIF/CIF con dígito de control verificado, desglose de IVA 21/10/4%, cuadre matemático y cuenta del PGC.",
+      "La IA extrae los datos; un motor determinista verifica NIF/CIF, desglose de IVA, retenciones y fechas. La IA nunca da por válido un justificante.",
   },
   {
     numero: "03",
-    titulo: "La gestoría exporta",
+    titulo: "Se cruza con el banco",
     descripcion:
-      "Lote contable por empresa y trimestre, liquidación del Modelo 303 y CSV listo para a3, Sage o Holded.",
+      "Cada cargo del extracto se empareja con su justificante. Lo que falta se reclama al cliente; lo que cuadra, a contabilidad.",
+  },
+  {
+    numero: "04",
+    titulo: "La gestoría revisa y exporta",
+    descripcion: "Solo revisa las excepciones. Lote contable por empresa y trimestre, listo para a3, Sage o Holded.",
+  },
+];
+
+const INNOVACION: { titulo: string; descripcion: string }[] = [
+  {
+    titulo: "IA que lee, reglas que deciden",
+    descripcion:
+      "Los modelos de visión son buenos leyendo y malos garantizando. Por eso la validez fiscal la decide un motor determinista y auditable, no el modelo: cada aviso indica la regla que lo causó.",
+  },
+  {
+    titulo: "Del justificante al movimiento bancario",
+    descripcion:
+      "El cruce del extracto con los justificantes detecta gastos sin factura antes del cierre trimestral. Cada coincidencia propuesta explica sus motivos y la confirma una persona.",
+  },
+  {
+    titulo: "Menos persecución, más criterio",
+    descripcion:
+      "El trabajo repetitivo de teclear y perseguir tickets pasa a la máquina. El criterio profesional se queda en la gestoría, con trazabilidad completa de quién cambió qué y cuándo.",
   },
 ];
 
@@ -76,57 +99,59 @@ const CARACTERISTICAS: {
     icono: BadgeCheck,
     titulo: "Validación NIF/CIF",
     descripcion:
-      "Dígito de control verificado en el servidor y consulta al censo VIES con autocompletado de razón social y domicilio.",
+      "Dígito de control verificado en el servidor y consulta opcional al censo VIES para completar razón social y domicilio.",
   },
   {
     icono: Calculator,
     titulo: "Control matemático del IVA",
     descripcion:
-      "Base + cuota − retención = total, con tolerancia de 0,02 €. Cualquier descuadre queda marcado para revisión.",
-  },
-  {
-    icono: Building2,
-    titulo: "Multi-empresa",
-    descripcion:
-      "Cada gestoría gestiona todas sus empresas desde un panel, con su número de WhatsApp autorizado.",
-  },
-  {
-    icono: FileDown,
-    titulo: "Exportación a3 · Sage · Holded",
-    descripcion:
-      "CSV contable español: separador «;», decimales con coma y BOM UTF-8. Importación directa.",
+      "Varios tipos en un mismo justificante (4, 10 y 21 %), base + cuota − retención = total y tolerancia de céntimos. Cualquier descuadre queda marcado.",
   },
   {
     icono: Landmark,
     titulo: "Conciliación bancaria",
     descripcion:
-      "GoCardless Bank Account Data: cruce del extracto real con los justificantes recibidos.",
-    insignia: "Próximamente",
+      "Importación de extractos CSV y Norma 43, con coincidencias explicadas. La conexión bancaria automática (Open Banking) está en preparación.",
+    insignia: "Disponible",
+  },
+  {
+    icono: Building2,
+    titulo: "Multi-empresa",
+    descripcion:
+      "Cada gestoría gestiona todas sus empresas desde un panel, con su número de WhatsApp autorizado y su bandeja de revisión.",
+  },
+  {
+    icono: FileDown,
+    titulo: "Exportación a3 · Sage · Holded",
+    descripcion:
+      "CSV contable español: separador «;», decimales con coma y BOM UTF-8. Importación directa en su software actual.",
   },
   {
     icono: FileCheck2,
-    titulo: "VeriFactu 2027",
+    titulo: "Trazabilidad",
     descripcion:
-      "Preparados para el reglamento de facturación certificada con las reglas AEAT ya aplicadas hoy.",
-    insignia: "En preparación",
+      "Registro de auditoría, borrado lógico y detección de duplicados por huella digital: un registro fiscal no se destruye ni se cuenta dos veces.",
   },
 ];
 
 const SEGURIDAD: { icono: LucideIcon; titulo: string; descripcion: string }[] = [
   {
-    icono: ShieldCheck,
-    titulo: "Encargado del Tratamiento",
-    descripcion: "Contrato de encargo conforme al RGPD con cada gestoría.",
-  },
-  {
     icono: Server,
-    titulo: "Alojamiento en la UE",
-    descripcion: "Servidores en Frankfurt (Alemania). Los datos no salen de Europa.",
+    titulo: "Datos en la UE",
+    descripcion:
+      "Aplicación y base de datos en Frankfurt (Alemania). Las imágenes se envían para su lectura a un proveedor de IA; indicamos cuál en el contrato de encargo.",
   },
   {
     icono: EyeOff,
-    titulo: "Minimización de datos",
-    descripcion: "Solo procesamos lo que exige la norma: NIF, importes y tipo de IVA.",
+    titulo: "No guardamos la imagen",
+    descripcion:
+      "Conservamos los datos fiscales extraídos y la huella SHA-256 del original para detectar duplicados. La foto no se almacena.",
+  },
+  {
+    icono: ShieldCheck,
+    titulo: "Control de acceso",
+    descripcion:
+      "Sesiones revocables, contraseñas con scrypt, límites de uso, aislamiento entre gestorías y doble factor obligatorio para el administrador.",
   },
 ];
 
@@ -191,7 +216,7 @@ function Caracteristica({
         {insignia ? (
           <Badge
             variant="outline"
-            className="border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
+            className="border-emerald-300 bg-emerald-50 text-emerald-800"
           >
             {insignia}
           </Badge>
@@ -314,34 +339,34 @@ export function LandingView({
               className="gap-1.5 border-primary/20 bg-secondary/60 px-3 py-1 text-xs font-medium"
             >
               <ShieldCheck className="size-3.5 text-emerald-700" aria-hidden="true" />
-              Para gestorías y asesorías fiscales en España
+              Fiscalidad asistida por IA · para gestorías españolas
             </Badge>
 
             <h1
               id="titulo-hero"
               className="mt-6 text-balance font-serif text-4xl font-bold leading-tight tracking-tight md:text-5xl"
             >
-              Los justificantes de sus clientes, ya son asientos contables.
+              Del ticket de WhatsApp al asiento contable, verificado y conciliado con el banco.
             </h1>
 
             <p className="mx-auto mt-5 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground">
-              TicketFiscal AI recibe los tickets y facturas de sus clientes por WhatsApp, extrae los
-              datos fiscales con IA, valida el NIF/CIF y el cuadre del IVA según la AEAT, y le
-              entrega el lote contable listo para importar en a3, Sage o Holded.
+              La IA lee los justificantes de sus clientes; un motor de reglas basado en la normativa
+              de la AEAT decide si son válidos; y el cruce con el extracto bancario le dice qué
+              gasto sigue sin factura. Usted solo revisa las excepciones.
             </p>
 
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <Button size="lg" onClick={onEntrar} className="w-full sm:w-auto">
-                Ver la demo
+              <Button size="lg" onClick={onRegistro} className="w-full sm:w-auto">
+                Solicitar acceso
                 <ArrowRight aria-hidden="true" />
               </Button>
-              <Button size="lg" variant="outline" onClick={onRegistro} className="w-full sm:w-auto">
-                Registrar mi gestoría
+              <Button size="lg" variant="outline" onClick={onEntrar} className="w-full sm:w-auto">
+                Ya tengo cuenta
               </Button>
             </div>
 
             <p className="mt-5 text-sm text-muted-foreground">
-              Demo completa con datos de ejemplo · sin registro previo
+              Alta de gestorías sujeta a aprobación · sin permanencia
             </p>
           </div>
         </section>
@@ -362,11 +387,34 @@ export function LandingView({
               id="titulo-como-funciona"
               className="max-w-2xl font-serif text-2xl font-semibold tracking-tight md:text-3xl"
             >
-              De WhatsApp al ERP, en tres pasos
+              De la foto al asiento, en cuatro pasos
             </h2>
-            <div className="mt-10 grid gap-5 md:grid-cols-3">
+            <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
               {PASOS.map((paso) => (
                 <Paso key={paso.numero} {...paso} />
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Innovación */}
+        <section id="innovacion" aria-labelledby="titulo-innovacion" className="scroll-mt-20 border-y bg-secondary/40 py-14">
+          <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
+            <h2
+              id="titulo-innovacion"
+              className="max-w-3xl font-serif text-2xl font-semibold tracking-tight md:text-3xl"
+            >
+              Una forma distinta de usar la IA en fiscalidad
+            </h2>
+            <p className="mt-3 max-w-2xl text-muted-foreground">
+              No sustituimos el criterio de la gestoría: le quitamos el trabajo que no aporta criterio.
+            </p>
+            <div className="mt-10 grid gap-8 md:grid-cols-3">
+              {INNOVACION.map((i) => (
+                <div key={i.titulo} className="border-t-2 border-primary pt-5">
+                  <h3 className="font-serif text-lg font-semibold leading-snug">{i.titulo}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{i.descripcion}</p>
+                </div>
               ))}
             </div>
           </div>
@@ -383,7 +431,7 @@ export function LandingView({
               id="titulo-producto"
               className="max-w-2xl font-serif text-2xl font-semibold tracking-tight md:text-3xl"
             >
-              Una capa fiscal completa sobre su software actual
+              Se integra con el software que ya usa
             </h2>
             <div className="mt-10 grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
               {CARACTERISTICAS.map((caracteristica) => (
@@ -400,7 +448,7 @@ export function LandingView({
               id="titulo-seguridad"
               className="max-w-2xl font-serif text-2xl font-semibold tracking-tight md:text-3xl"
             >
-              Sus datos fiscales, tratados como corresponde
+              Datos fiscales: qué hacemos y qué no
             </h2>
             <div className="mt-10 grid gap-8 md:grid-cols-3">
               {SEGURIDAD.map((bloque) => (
@@ -418,26 +466,14 @@ export function LandingView({
                 id="titulo-cta"
                 className="mx-auto max-w-2xl text-balance font-serif text-2xl font-semibold tracking-tight md:text-3xl"
               >
-                Empiece por sus diez clientes más difíciles
+                Pruébelo con sus diez clientes más difíciles
               </h2>
               <p className="mx-auto mt-3 max-w-xl text-pretty text-primary-foreground/80">
                 Los que mandan fotos borrosas a las 23:00 de un domingo.
               </p>
-              <Button size="lg" variant="secondary" onClick={onEntrar} className="mt-8">
-                Entrar en la demo
+              <Button size="lg" variant="secondary" onClick={onRegistro} className="mt-8">
+                Solicitar acceso
               </Button>
-
-              <div className="mx-auto mt-10 flex max-w-lg items-start gap-3 rounded-lg border border-primary-foreground/20 bg-primary-foreground/10 p-3 text-left">
-                <KeyRound
-                  className="mt-0.5 size-3.5 shrink-0 text-primary-foreground/70"
-                  aria-hidden="true"
-                />
-                <div className="text-xs leading-relaxed text-primary-foreground/85">
-                  <p className="font-semibold text-primary-foreground">Cuentas de demostración</p>
-                  <p className="mt-1">Gestoría: ana@gestoriaalboraya.es · Contraseña: demo1234</p>
-                  <p>Cliente: juan@tallerperez.es · Contraseña: demo1234</p>
-                </div>
-              </div>
             </div>
           </div>
         </section>
@@ -453,7 +489,7 @@ export function LandingView({
             </p>
           </div>
           <p className="text-xs text-muted-foreground">
-            Datos de demostración. No constituye asesoramiento fiscal.
+            Herramienta de apoyo: la gestoría sigue siendo responsable de las declaraciones presentadas.
           </p>
         </div>
       </footer>

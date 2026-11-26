@@ -291,7 +291,7 @@ export function ClientePortal({
         <div className="mx-auto flex max-w-6xl flex-col gap-1.5 px-4 py-4 text-center sm:flex-row sm:items-center sm:justify-between sm:text-left">
           <p className="text-xs text-muted-foreground">
             {resumen.ivaDeducible.toFixed(2)} € de IVA soportado deducible registrados este
-            ejercicio. Datos de demostración.
+            ejercicio.
           </p>
           <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <Calculator className="h-3.5 w-3.5 text-emerald-700" />
