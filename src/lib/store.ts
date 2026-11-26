@@ -1,435 +1,386 @@
-// TicketFiscal AI — Capa de acceso a datos multi-tenant con dos backends:
-//  · SQLite + Prisma cuando existe DATABASE_URL y el archivo es accesible
-//  · Memoria con la cartera de demostración en cualquier otro caso (serverless)
-// Si SQLite falla en runtime, se degrada automáticamente al modo memoria.
-
-import { getDb, tieneSqlite } from "./db";
+// Acceso a datos multi-tenant sobre Postgres (Prisma). Toda consulta sobre documentos
+// filtra por gestoría o por empresa; no hay consultas globales desde las rutas.
+import { Prisma, type Empresa as EmpresaFila } from "@prisma/client";
+import { prisma } from "./prisma";
+import type { Documento, EmpresaResumen, EstadoEmpresa, LineaImpuesto, RevisionDocumento, Rol, UsuarioSesion } from "./types";
 import { trimestreDe } from "./fiscal";
-import { hashPassword } from "./hash";
-import {
-  SEMILLA_DOCUMENTOS,
-  SEMILLA_EMPRESAS,
-  SEMILLA_GESTORIAS,
-  SEMILLA_USUARIOS,
-  createdAtDe,
-} from "./seed";
-import type { Documento, Empresa, EmpresaResumen, Rol, UsuarioSesion } from "./types";
 
-export type ModoDatos = "sqlite" | "memoria";
+type DocumentoFila = Prisma.DocumentoGetPayload<{ include: { lineas: true } }>;
 
-export type EntradaDocumento = Omit<Documento, "id" | "createdAt" | "trimestre"> & {
-  trimestre?: string | null;
-};
+const n = (d: Prisma.Decimal | number | null | undefined): number =>
+  d === null || d === undefined ? 0 : typeof d === "number" ? d : d.toNumber();
 
-interface UsuarioRegistro {
-  id: string;
-  email: string;
-  passwordHash: string;
-  nombre: string;
-  rol: Rol;
-  gestoriaId: string | null;
-  empresaId: string | null;
-  createdAt: Date;
+const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null);
+
+export function aEmpresa(f: EmpresaFila): Omit<EmpresaResumen, "documentos" | "pendientes" | "ivaDeducible" | "ultimoDocumento"> {
+  return {
+    id: f.id,
+    nombre: f.nombre,
+    nif: f.nif,
+    direccion: f.direccion,
+    ciudad: f.ciudad,
+    whatsapp: f.whatsapp,
+    gestoriaId: f.gestoriaId,
+    estado: f.estado as EstadoEmpresa,
+    createdAt: f.createdAt.toISOString(),
+  };
 }
 
-const DIAS_SESION = 30;
-
-// ------------------------------------------------------------------ Memoria
-
-interface EstadoMemoria {
-  gestorias: typeof SEMILLA_GESTORIAS;
-  usuarios: UsuarioRegistro[];
-  empresas: Empresa[];
-  documentos: Documento[];
+export function aDocumento(f: DocumentoFila): Documento {
+  const desglose: LineaImpuesto[] = [...f.lineas]
+    .sort((a, b) => a.orden - b.orden)
+    .map((l) => ({ orden: l.orden, baseImponible: n(l.baseImponible), porcentajeIva: n(l.porcentajeIva), cuotaIva: n(l.cuotaIva) }));
+  return {
+    id: f.id,
+    empresaId: f.empresaId,
+    estado: f.estado,
+    tipoDocumento: f.tipoDocumento,
+    ivaDeducible: f.ivaDeducible,
+    emisorNombre: f.emisorNombre,
+    emisorNif: f.emisorNif,
+    nifEmisorValido: f.nifEmisorValido,
+    receptorNombre: f.receptorNombre,
+    receptorNif: f.receptorNif,
+    nifReceptorValido: f.nifReceptorValido,
+    numeroFactura: f.numeroFactura,
+    fechaEmision: f.fechaEmision ? f.fechaEmision.toISOString().slice(0, 10) : null,
+    moneda: f.moneda,
+    baseImponible: n(f.baseImponible),
+    porcentajeIva: n(f.porcentajeIva),
+    cuotaIva: n(f.cuotaIva),
+    irpfPorcentaje: n(f.irpfPorcentaje),
+    irpfImporte: n(f.irpfImporte),
+    totalFactura: n(f.totalFactura),
+    cuentaPgc: f.cuentaPgc,
+    confianza: f.confianza,
+    motivoRevision: f.motivoRevision,
+    mensajeWhatsapp: f.mensajeWhatsapp,
+    imagenNombre: f.imagenNombre,
+    trimestre: f.trimestre,
+    desglose,
+    revision: f.revision as RevisionDocumento,
+    revisadoEn: iso(f.revisadoEn),
+    origen: f.origen,
+    createdAt: f.createdAt.toISOString(),
+  };
 }
 
-const globalMem = globalThis as unknown as {
-  __tfMemoria?: EstadoMemoria;
-  __tfFalloSqlite?: boolean;
-};
-
-function memoria(): EstadoMemoria {
-  if (!globalMem.__tfMemoria) {
-    globalMem.__tfMemoria = {
-      gestorias: SEMILLA_GESTORIAS.map((g) => ({ ...g })),
-      usuarios: SEMILLA_USUARIOS.map((u) => ({
-        id: u.id,
-        email: u.email,
-        passwordHash: hashPassword(u.password),
-        nombre: u.nombre,
-        rol: u.rol,
-        gestoriaId: u.gestoriaId,
-        empresaId: u.empresaId,
-        createdAt: new Date("2026-01-05T09:00:00Z"),
-      })),
-      empresas: SEMILLA_EMPRESAS.map((e) => ({ ...e, createdAt: "2026-01-05T09:00:00.000Z" })),
-      documentos: SEMILLA_DOCUMENTOS.map((d) => ({ ...d, createdAt: createdAtDe(d) })),
-    };
-  }
-  return globalMem.__tfMemoria;
-}
-
-// ------------------------------------------------------------------ Resguardo
-
-/** Ejecuta una operación contra Prisma; null si SQLite no está disponible. */
-async function conPrisma<T>(op: (db: ReturnType<typeof getDb>) => Promise<T>): Promise<T | null> {
-  if (!tieneSqlite() || globalMem.__tfFalloSqlite) return null;
-  try {
-    const db = getDb();
-    await asegurarSemilla(db);
-    return await op(db);
-  } catch (error) {
-    console.warn(
-      "[store] SQLite no disponible; usando memoria:",
-      error instanceof Error ? error.message.split("\n").find((l) => l.trim()) ?? error.message : error
-    );
-    globalMem.__tfFalloSqlite = true;
-    return null;
-  }
-}
-
-// ------------------------------------------------------------------ Semilla SQLite
-
-let sembrando: Promise<void> | null = null;
-
-async function asegurarSemilla(db: ReturnType<typeof getDb>): Promise<void> {
-  if (sembrando) {
-    await sembrando;
-    return;
-  }
-  sembrando = (async () => {
-    if ((await db.usuario.count()) > 0) return;
-    for (const g of SEMILLA_GESTORIAS) {
-      await db.gestoria.create({
-        data: { id: g.id, nombre: g.nombre, cif: g.cif, ciudad: g.ciudad },
-      });
-    }
-    for (const e of SEMILLA_EMPRESAS) {
-      await db.empresa.create({
-        data: { ...e, createdAt: new Date("2026-01-05T09:00:00Z") },
-      });
-    }
-    for (const u of SEMILLA_USUARIOS) {
-      await db.usuario.create({
-        data: {
-          id: u.id,
-          email: u.email,
-          passwordHash: hashPassword(u.password),
-          nombre: u.nombre,
-          rol: u.rol,
-          gestoriaId: u.gestoriaId,
-          empresaId: u.empresaId,
-          createdAt: new Date("2026-01-05T09:00:00Z"),
-        },
-      });
-    }
-    for (const d of SEMILLA_DOCUMENTOS) {
-      const { ...resto } = d;
-      await db.documento.create({
-        data: { ...resto, createdAt: new Date(createdAtDe(d)) },
-      });
-    }
-  })();
-  try {
-    await sembrando;
-  } finally {
-    sembrando = null;
-  }
-}
-
-// ------------------------------------------------------------------ Modo
-
-export function modoDatos(): ModoDatos {
-  return tieneSqlite() && !globalMem.__tfFalloSqlite ? "sqlite" : "memoria";
-}
-
-// ------------------------------------------------------------------ Gestorías
+// ------------------------------------------------------------------ Gestorías y usuarios
 
 export async function listarGestorias(): Promise<Array<{ id: string; nombre: string }>> {
-  const filas = await conPrisma(async (db) => db.gestoria.findMany({ orderBy: { nombre: "asc" } }));
-  if (filas !== null) return filas.map((g) => ({ id: g.id, nombre: g.nombre }));
-  return memoria().gestorias
-    .map((g) => ({ id: g.id, nombre: g.nombre }))
-    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  return prisma.gestoria.findMany({ select: { id: true, nombre: true }, orderBy: { nombre: "asc" }, take: 500 });
 }
 
-export async function crearGestoria(entrada: {
+export async function findUsuarioPorEmail(email: string) {
+  return prisma.usuario.findUnique({ where: { email: email.trim().toLowerCase() } });
+}
+
+export async function registrarGestor(entrada: {
   nombre: string;
-  cif?: string | null;
-  ciudad?: string | null;
-}): Promise<{ id: string; nombre: string }> {
-  const fila = await conPrisma(async (db) =>
-    db.gestoria.create({
-      data: { nombre: entrada.nombre, cif: entrada.cif ?? null, ciudad: entrada.ciudad ?? null },
-    })
-  );
-  if (fila !== null) return { id: fila.id, nombre: fila.nombre };
-
-  const id = crypto.randomUUID();
-  memoria().gestorias.push({
-    id,
-    nombre: entrada.nombre,
-    cif: entrada.cif ?? null,
-    ciudad: entrada.ciudad ?? null,
-  });
-  return { id, nombre: entrada.nombre };
-}
-
-// ------------------------------------------------------------------ Usuarios
-
-export async function findUsuarioPorEmail(email: string): Promise<UsuarioRegistro | null> {
-  const emailNorm = email.trim().toLowerCase();
-  const fila = await conPrisma((db) =>
-    db.usuario.findUnique({ where: { email: emailNorm } })
-  );
-  if (fila !== null) return fila as UsuarioRegistro;
-
-  return memoria().usuarios.find((u) => u.email === emailNorm) ?? null;
-}
-
-export async function crearUsuario(entrada: {
   email: string;
   passwordHash: string;
-  nombre: string;
-  rol: Rol;
-  gestoriaId?: string | null;
-  empresaId?: string | null;
-}): Promise<UsuarioRegistro> {
-  const data = {
-    email: entrada.email.trim().toLowerCase(),
-    passwordHash: entrada.passwordHash,
-    nombre: entrada.nombre,
-    rol: entrada.rol,
-    gestoriaId: entrada.gestoriaId ?? null,
-    empresaId: entrada.empresaId ?? null,
-  };
-  const fila = await conPrisma(async (db) => db.usuario.create({ data }));
-  if (fila !== null) return fila as UsuarioRegistro;
-
-  const usuario: UsuarioRegistro = {
-    ...data,
-    id: crypto.randomUUID(),
-    createdAt: new Date(),
-  };
-  memoria().usuarios.push(usuario);
-  return usuario;
+  gestoriaNombre: string;
+  gestoriaCif: string | null;
+}): Promise<string> {
+  const usuario = await prisma.$transaction(async (tx) => {
+    const gestoria = await tx.gestoria.create({
+      data: { nombre: entrada.gestoriaNombre, cif: entrada.gestoriaCif },
+    });
+    return tx.usuario.create({
+      data: {
+        email: entrada.email,
+        passwordHash: entrada.passwordHash,
+        nombre: entrada.nombre,
+        rol: "GESTOR" as Rol,
+        gestoriaId: gestoria.id,
+      },
+    });
+  });
+  return usuario.id;
 }
 
-/** Contexto público del usuario (para la sesión del frontend). */
-export async function contextoUsuario(usuarioId: string): Promise<UsuarioSesion | null> {
-  const construir = (u: UsuarioRegistro | null): UsuarioSesion | null => {
-    if (!u) return null;
-    const base: UsuarioSesion = {
-      id: u.id,
-      nombre: u.nombre,
-      email: u.email,
-      rol: u.rol,
-    };
-    if (u.rol === "GESTOR") {
-      const g = memoria().gestorias.find((x) => x.id === u.gestoriaId);
-      if (g) base.gestoria = { id: g.id, nombre: g.nombre };
-    } else {
-      const e = memoria().empresas.find((x) => x.id === u.empresaId);
-      if (e) base.empresa = { id: e.id, nombre: e.nombre, nif: e.nif, ciudad: e.ciudad };
-    }
-    return base;
-  };
+export async function registrarCliente(entrada: {
+  nombre: string;
+  email: string;
+  passwordHash: string;
+  empresa: { nombre: string; nif: string; direccion: string | null; ciudad: string | null; whatsapp: string | null };
+  gestoriaId: string | null;
+}): Promise<string> {
+  const usuario = await prisma.$transaction(async (tx) => {
+    const empresa = await tx.empresa.create({
+      data: { ...entrada.empresa, gestoriaId: entrada.gestoriaId, estado: "PENDIENTE" },
+    });
+    return tx.usuario.create({
+      data: {
+        email: entrada.email,
+        passwordHash: entrada.passwordHash,
+        nombre: entrada.nombre,
+        rol: "CLIENTE" as Rol,
+        empresaId: empresa.id,
+      },
+    });
+  });
+  return usuario.id;
+}
 
-  const fila = await conPrisma(async (db) =>
-    db.usuario.findUnique({
-      where: { id: usuarioId },
-      include: { gestoria: true, empresa: true },
-    })
-  );
-  if (fila !== null) {
-    const base: UsuarioSesion = {
-      id: fila.id,
-      nombre: fila.nombre,
-      email: fila.email,
-      rol: fila.rol as Rol,
+/** Contexto del usuario para el frontend (sin hash). Se usa en login, registro y sesión. */
+export async function contextoUsuarioPorId(usuarioId: string): Promise<UsuarioSesion | null> {
+  const u = await prisma.usuario.findUnique({
+    where: { id: usuarioId },
+    include: { gestoria: true, empresa: true },
+  });
+  if (!u) return null;
+  const base: UsuarioSesion = { id: u.id, nombre: u.nombre, email: u.email, rol: u.rol as Rol };
+  if (u.gestoria) base.gestoria = { id: u.gestoria.id, nombre: u.gestoria.nombre };
+  if (u.empresa) {
+    base.empresa = {
+      id: u.empresa.id,
+      nombre: u.empresa.nombre,
+      nif: u.empresa.nif,
+      ciudad: u.empresa.ciudad,
+      estado: u.empresa.estado as EstadoEmpresa,
     };
-    if (fila.rol === "GESTOR" && fila.gestoria) {
-      base.gestoria = { id: fila.gestoria.id, nombre: fila.gestoria.nombre };
-    } else if (fila.empresa) {
-      base.empresa = {
-        id: fila.empresa.id,
-        nombre: fila.empresa.nombre,
-        nif: fila.empresa.nif,
-        ciudad: fila.empresa.ciudad,
-      };
-    }
-    return base;
   }
-
-  return construir(memoria().usuarios.find((u) => u.id === usuarioId) ?? null);
+  return base;
 }
 
 // ------------------------------------------------------------------ Empresas
 
-function filaAEmpresa(f: {
-  id: string;
-  nombre: string;
-  nif: string;
-  direccion: string | null;
-  ciudad: string | null;
-  whatsapp: string | null;
-  gestoriaId: string | null;
-  createdAt: Date;
-}): Empresa {
-  return { ...f, createdAt: f.createdAt.toISOString() };
-}
-
-export async function listarEmpresasDeGestoria(
-  gestoriaId: string
-): Promise<EmpresaResumen[]> {
-  const resumir = (empresas: Empresa[], docs: Documento[]): EmpresaResumen[] =>
-    empresas.map((e) => {
-      const propios = docs.filter((d) => d.empresaId === e.id);
-      return {
-        ...e,
-        documentos: propios.length,
-        pendientes: propios.filter(
-          (d) => d.estado === "REQUIERE_REVISION" || d.estado === "ILEGIBLE"
-        ).length,
-        ivaDeducible: propios
-          .filter((d) => d.ivaDeducible)
-          .reduce((s, d) => s + d.cuotaIva, 0),
-        ultimoDocumento: propios
-          .map((d) => d.fechaEmision)
-          .filter(Boolean)
-          .sort()
-          .pop() ?? null,
-      };
-    });
-
-  const resultado = await conPrisma(async (db) => {
-    const empresas = await db.empresa.findMany({
-      where: { gestoriaId },
-      orderBy: { nombre: "asc" },
-    });
-    const docs = await db.documento.findMany({
-      where: { empresa: { gestoriaId } },
-    });
-    return { empresas, docs };
+export async function listarEmpresasDeGestoria(gestoriaId: string): Promise<EmpresaResumen[]> {
+  const empresas = await prisma.empresa.findMany({
+    where: { gestoriaId },
+    orderBy: { nombre: "asc" },
   });
-  if (resultado !== null) {
-    const empresas = resultado.empresas.map(filaAEmpresa);
-    const docs = resultado.docs as unknown as Documento[];
-    return resumir(empresas, docs);
-  }
+  if (empresas.length === 0) return [];
+  const ids = empresas.map((e) => e.id);
+  const base = { empresaId: { in: ids }, eliminadoEn: null };
 
-  const m = memoria();
-  return resumir(
-    m.empresas.filter((e) => e.gestoriaId === gestoriaId),
-    m.documentos
-  );
+  const [totales, pendientes, iva, ultimos] = await Promise.all([
+    prisma.documento.groupBy({ by: ["empresaId"], where: base, _count: { _all: true } }),
+    prisma.documento.groupBy({
+      by: ["empresaId"],
+      where: { ...base, revision: "PENDIENTE", NOT: { estado: "VALIDO" } },
+      _count: { _all: true },
+    }),
+    prisma.documento.groupBy({
+      by: ["empresaId"],
+      where: { ...base, ivaDeducible: true },
+      _sum: { cuotaIva: true },
+    }),
+    prisma.documento.groupBy({ by: ["empresaId"], where: base, _max: { fechaEmision: true } }),
+  ]);
+  const porId = <T extends { empresaId: string }>(filas: T[]) => new Map(filas.map((f) => [f.empresaId, f]));
+  const mTot = porId(totales);
+  const mPend = porId(pendientes);
+  const mIva = porId(iva);
+  const mUlt = porId(ultimos);
+
+  return empresas.map((e) => ({
+    ...aEmpresa(e),
+    documentos: mTot.get(e.id)?._count._all ?? 0,
+    pendientes: mPend.get(e.id)?._count._all ?? 0,
+    ivaDeducible: n(mIva.get(e.id)?._sum.cuotaIva ?? 0),
+    ultimoDocumento: mUlt.get(e.id)?._max.fechaEmision?.toISOString().slice(0, 10) ?? null,
+  }));
 }
 
-export async function crearEmpresa(entrada: {
-  nombre: string;
-  nif: string;
-  direccion?: string | null;
-  ciudad?: string | null;
-  whatsapp?: string | null;
-  gestoriaId?: string | null;
-}): Promise<Empresa> {
-  const data = {
-    nombre: entrada.nombre,
-    nif: entrada.nif,
-    direccion: entrada.direccion ?? null,
-    ciudad: entrada.ciudad ?? null,
-    whatsapp: entrada.whatsapp ?? null,
-    gestoriaId: entrada.gestoriaId ?? null,
-  };
-  const fila = await conPrisma(async (db) => db.empresa.create({ data }));
-  if (fila !== null) return filaAEmpresa(fila);
-
-  const empresa: Empresa = { ...data, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
-  memoria().empresas.push(empresa);
-  return empresa;
+/** Mensaje de conflicto si el NIF o el WhatsApp ya pertenecen a otra empresa (antes de insertar). */
+export async function conflictoEmpresa(nif: string, whatsapp: string | null): Promise<string | null> {
+  const e = await prisma.empresa.findFirst({
+    where: { OR: [{ nif }, ...(whatsapp ? [{ whatsapp }] : [])] },
+    select: { nif: true },
+  });
+  if (!e) return null;
+  return e.nif === nif
+    ? "Ya existe una empresa registrada con ese NIF/CIF. Contacte con su gestoría."
+    : "Ese número de WhatsApp ya está asociado a otra empresa.";
 }
 
-export async function obtenerEmpresa(id: string): Promise<Empresa | null> {
-  const fila = await conPrisma((db) => db.empresa.findUnique({ where: { id } }));
-  if (fila !== null) return filaAEmpresa(fila);
-  return memoria().empresas.find((e) => e.id === id) ?? null;
+export async function obtenerEmpresa(id: string): Promise<EmpresaFila | null> {
+  return prisma.empresa.findUnique({ where: { id } });
+}
+
+export async function empresaPorWhatsapp(numero: string): Promise<EmpresaFila | null> {
+  return prisma.empresa.findUnique({ where: { whatsapp: numero } });
+}
+
+export async function cambiarEstadoEmpresa(
+  gestoriaId: string,
+  empresaId: string,
+  estado: "APROBADA" | "RECHAZADA",
+  usuarioId: string
+): Promise<EmpresaFila | null> {
+  const empresa = await prisma.empresa.findFirst({ where: { id: empresaId, gestoriaId } });
+  if (!empresa) return null;
+  const actualizada = await prisma.empresa.update({ where: { id: empresaId }, data: { estado } });
+  await registrarAuditoria({ usuarioId, gestoriaId, accion: `empresa.${estado.toLowerCase()}`, entidad: "Empresa", entidadId: empresaId });
+  return actualizada;
 }
 
 // ------------------------------------------------------------------ Documentos
 
-interface FiltroDocumentos {
+export interface FiltroDocumentos {
   gestoriaId?: string;
   empresaId?: string;
   trimestre?: string | null;
+  soloAprobados?: boolean;
 }
 
-export async function listarDocumentos(filtro: FiltroDocumentos = {}): Promise<Documento[]> {
-  const where = {
-    ...(filtro.empresaId ? { empresaId: filtro.empresaId } : {}),
-    ...(filtro.gestoriaId ? { empresa: { gestoriaId: filtro.gestoriaId } } : {}),
-    ...(filtro.trimestre ? { trimestre: filtro.trimestre } : {}),
+function whereDocumentos(f: FiltroDocumentos): Prisma.DocumentoWhereInput {
+  return {
+    eliminadoEn: null,
+    ...(f.empresaId ? { empresaId: f.empresaId } : {}),
+    ...(f.gestoriaId ? { empresa: { gestoriaId: f.gestoriaId } } : {}),
+    ...(f.trimestre ? { trimestre: f.trimestre } : {}),
+    ...(f.soloAprobados ? { revision: "APROBADO" } : {}),
   };
-
-  const filas = await conPrisma(async (db) => {
-    await asegurarSemilla(db);
-    return db.documento.findMany({ where, orderBy: { createdAt: "desc" } });
-  });
-  if (filas !== null) {
-    return (filas as unknown as Array<Documento & { createdAt: Date }>).map((f) => ({
-      ...f,
-      createdAt: f.createdAt instanceof Date ? f.createdAt.toISOString() : String(f.createdAt),
-    }));
-  }
-
-  const m = memoria();
-  return m.documentos
-    .filter((d) => {
-      if (filtro.empresaId && d.empresaId !== filtro.empresaId) return false;
-      if (filtro.trimestre && d.trimestre !== filtro.trimestre) return false;
-      if (filtro.gestoriaId) {
-        const emp = m.empresas.find((e) => e.id === d.empresaId);
-        if (!emp || emp.gestoriaId !== filtro.gestoriaId) return false;
-      }
-      return true;
-    })
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export async function crearDocumento(entrada: EntradaDocumento): Promise<Documento> {
-  const trimestre = entrada.trimestre ?? trimestreDe(entrada.fechaEmision);
-  const fila = await conPrisma(async (db) => {
-    await asegurarSemilla(db);
-    return db.documento.create({ data: { ...entrada, trimestre } });
+export async function listarDocumentos(f: FiltroDocumentos = {}, limite = 2000): Promise<Documento[]> {
+  const filas = await prisma.documento.findMany({
+    where: whereDocumentos(f),
+    include: { lineas: true },
+    orderBy: { createdAt: "desc" },
+    take: limite,
   });
-  if (fila !== null) {
-    return {
-      ...(fila as unknown as Documento & { createdAt: Date }),
-      createdAt: fila.createdAt.toISOString(),
-    };
-  }
-
-  const doc: Documento = {
-    ...entrada,
-    trimestre,
-    id: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
-  };
-  memoria().documentos.unshift(doc);
-  return doc;
+  return filas.map(aDocumento);
 }
 
-export async function eliminarDocumento(id?: string | null): Promise<void> {
-  const ok = await conPrisma(async (db) => {
-    await asegurarSemilla(db);
-    if (id) {
-      await db.documento.delete({ where: { id } });
-    } else {
-      await db.documento.deleteMany({});
-    }
-    return true;
+export async function obtenerDocumentoDeGestoria(id: string, gestoriaId: string): Promise<DocumentoFila | null> {
+  return prisma.documento.findFirst({
+    where: { id, eliminadoEn: null, empresa: { gestoriaId } },
+    include: { lineas: true },
   });
-  if (ok !== null) return;
+}
 
-  const m = memoria();
-  m.documentos = id ? m.documentos.filter((d) => d.id !== id) : [];
+export async function buscarDuplicadoPorNumero(
+  empresaId: string,
+  emisorNif: string,
+  numeroFactura: string
+): Promise<{ id: string; numeroFactura: string | null } | null> {
+  return prisma.documento.findFirst({
+    where: { empresaId, emisorNif, numeroFactura, eliminadoEn: null },
+    select: { id: true, numeroFactura: true },
+  });
+}
+
+export async function buscarPorHashImagen(empresaId: string, imagenHash: string): Promise<DocumentoFila | null> {
+  return prisma.documento.findFirst({
+    where: { empresaId, imagenHash, eliminadoEn: null },
+    include: { lineas: true },
+  });
+}
+
+export interface NuevoDocumento {
+  empresaId: string;
+  estado: "VALIDO" | "REQUIERE_REVISION" | "ILEGIBLE";
+  tipoDocumento: "FACTURA_COMPLETA" | "FACTURA_SIMPLIFICADA" | "NO_VALIDO";
+  ivaDeducible: boolean;
+  emisorNombre: string | null;
+  emisorNif: string | null;
+  nifEmisorValido: boolean | null;
+  receptorNombre: string | null;
+  receptorNif: string | null;
+  nifReceptorValido: boolean | null;
+  numeroFactura: string | null;
+  fechaEmision: string | null;
+  moneda: string;
+  lineas: Array<{ orden: number; baseImponible: number; porcentajeIva: number; cuotaIva: number }>;
+  baseImponible: number;
+  porcentajeIva: number;
+  cuotaIva: number;
+  irpfPorcentaje: number;
+  irpfImporte: number;
+  totalFactura: number;
+  cuentaPgc: string | null;
+  confianza: number;
+  motivoRevision: string | null;
+  mensajeWhatsapp: string | null;
+  imagenNombre: string | null;
+  imagenMime: string;
+  imagenBytes: number;
+  imagenHash: string;
+  origen: "WEB" | "WHATSAPP";
+  whatsappMensajeId: string | null;
+}
+
+export async function crearDocumento(entrada: NuevoDocumento): Promise<DocumentoFila> {
+  const { lineas, fechaEmision, ...resto } = entrada;
+  return prisma.documento.create({
+    data: {
+      ...resto,
+      fechaEmision: fechaEmision ? new Date(`${fechaEmision}T00:00:00Z`) : null,
+      trimestre: trimestreDe(fechaEmision),
+      lineas: {
+        create: lineas.map((l) => ({
+          orden: l.orden,
+          baseImponible: l.baseImponible,
+          porcentajeIva: l.porcentajeIva,
+          cuotaIva: l.cuotaIva,
+        })),
+      },
+    },
+    include: { lineas: true },
+  });
+}
+
+export async function actualizarRevision(
+  documentoId: string,
+  gestoriaId: string,
+  usuarioId: string,
+  cambios: { revision?: RevisionDocumento; cuentaPgc?: string | null; motivoRevision?: string | null }
+): Promise<DocumentoFila | null> {
+  const doc = await prisma.documento.findFirst({ where: { id: documentoId, eliminadoEn: null, empresa: { gestoriaId } } });
+  if (!doc) return null;
+  const actualizado = await prisma.documento.update({
+    where: { id: documentoId },
+    data: {
+      ...(cambios.revision ? { revision: cambios.revision, revisadoEn: new Date(), revisadoPorId: usuarioId } : {}),
+      ...(cambios.cuentaPgc !== undefined ? { cuentaPgc: cambios.cuentaPgc } : {}),
+      ...(cambios.motivoRevision !== undefined ? { motivoRevision: cambios.motivoRevision } : {}),
+    },
+    include: { lineas: true },
+  });
+  await registrarAuditoria({
+    usuarioId,
+    gestoriaId,
+    accion: "documento.revisado",
+    entidad: "Documento",
+    entidadId: documentoId,
+    detalle: { cambios: { ...cambios } },
+  });
+  return actualizado;
+}
+
+/** Borrado lógico: el registro fiscal se conserva y queda en auditoría. */
+export async function eliminarDocumentoLogico(documentoId: string, gestoriaId: string, usuarioId: string): Promise<boolean> {
+  const r = await prisma.documento.updateMany({
+    where: { id: documentoId, eliminadoEn: null, empresa: { gestoriaId } },
+    data: { eliminadoEn: new Date() },
+  });
+  if (r.count === 0) return false;
+  await registrarAuditoria({ usuarioId, gestoriaId, accion: "documento.eliminado", entidad: "Documento", entidadId: documentoId });
+  return true;
+}
+
+// ------------------------------------------------------------------ Auditoría
+
+export async function registrarAuditoria(e: {
+  usuarioId?: string | null;
+  gestoriaId?: string | null;
+  accion: string;
+  entidad: string;
+  entidadId: string;
+  detalle?: Prisma.InputJsonValue;
+}): Promise<void> {
+  await prisma.auditoriaEvento.create({
+    data: {
+      usuarioId: e.usuarioId ?? null,
+      gestoriaId: e.gestoriaId ?? null,
+      accion: e.accion,
+      entidad: e.entidad,
+      entidadId: e.entidadId,
+      detalle: e.detalle ?? Prisma.JsonNull,
+    },
+  });
 }

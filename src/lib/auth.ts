@@ -1,71 +1,72 @@
-// TicketFiscal AI — Sesiones con cookie httpOnly.
-// El token es opaco para el navegador pero va FIRMADO (HMAC-SHA256), de modo
-// que cualquier instancia serverless puede validarlo sin estado compartido.
-
+// Autenticación y autorización por rol. La sesión se valida contra la base de datos
+// en cada petición (revocación inmediata).
 import { NextRequest, NextResponse } from "next/server";
-import { firmarToken, nuevaExpiracionSesion, verificarToken } from "./hash";
-import { contextoUsuario } from "./store";
+import { revocarSesion, usuarioIdDeToken, DIAS_SESION } from "./sesiones";
 import type { Rol, UsuarioSesion } from "./types";
+import { contextoUsuarioPorId } from "./store";
 
 export const COOKIE_SESION = "tf_sesion";
 
-/** Emite un token firmado para el usuario. Stateless: no requiere base de datos. */
-export function crearSesionFirmada(usuarioId: string): { token: string; expiraEn: Date } {
-  const expiraEn = nuevaExpiracionSesion();
-  const token = firmarToken(usuarioId, expiraEn.getTime());
-  return { token, expiraEn };
+export interface SesionActiva {
+  usuario: UsuarioSesion;
+  usuarioId: string;
+  token: string;
+}
+
+function opcionesCookie(expira?: Date) {
+  return {
+    name: COOKIE_SESION,
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    ...(expira ? { expires: expira } : {}),
+  };
 }
 
 export function fijarCookieSesion(res: NextResponse, token: string, expiraEn: Date): void {
-  res.cookies.set({
-    name: COOKIE_SESION,
-    value: token,
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    expires: expiraEn,
-  });
+  res.cookies.set({ ...opcionesCookie(expiraEn), value: token });
 }
 
 export function limpiarCookieSesion(res: NextResponse): void {
-  res.cookies.set({
-    name: COOKIE_SESION,
-    value: "",
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 0,
-  });
+  res.cookies.set({ ...opcionesCookie(new Date(0)), value: "", maxAge: 0 });
 }
 
-export async function usuarioDesdeRequest(
-  req: NextRequest
-): Promise<{ usuario: UsuarioSesion; token: string } | null> {
-  const token = req.cookies.get(COOKIE_SESION)?.value;
+export function tokenDeRequest(req: NextRequest): string | null {
+  return req.cookies.get(COOKIE_SESION)?.value ?? null;
+}
+
+export async function sesionDeRequest(req: NextRequest): Promise<SesionActiva | null> {
+  const token = tokenDeRequest(req);
   if (!token) return null;
-  const usuarioId = verificarToken(token);
+  const usuarioId = await usuarioIdDeToken(token);
   if (!usuarioId) return null;
-  const usuario = await contextoUsuario(usuarioId);
+  const usuario = await contextoUsuarioPorId(usuarioId);
   if (!usuario) return null;
-  return { usuario, token };
+  return { usuario, usuarioId, token };
 }
 
-export function requiereRol(
-  sesion: { usuario: UsuarioSesion; token: string } | null,
+export const RESPUESTA_SIN_SESION = (): NextResponse =>
+  NextResponse.json({ error: "Sin sesión activa" }, { status: 401 });
+
+/** Exige sesión con el rol indicado. Devuelve la sesión o una respuesta de error. */
+export function exigirRol(
+  sesion: SesionActiva | null,
   rol: Rol
-): { usuario: UsuarioSesion; token: string } | { error: NextResponse } {
-  if (!sesion) {
-    return { error: NextResponse.json({ error: "Sin sesión activa" }, { status: 401 }) };
-  }
+): { ok: true; sesion: SesionActiva } | { ok: false; respuesta: NextResponse } {
+  if (!sesion) return { ok: false, respuesta: RESPUESTA_SIN_SESION() };
   if (sesion.usuario.rol !== rol) {
     return {
-      error: NextResponse.json(
-        { error: "No tiene permisos para esta operación" },
-        { status: 403 }
-      ),
+      ok: false,
+      respuesta: NextResponse.json({ error: "No tiene permisos para esta operación" }, { status: 403 }),
     };
   }
-  return sesion;
+  return { ok: true, sesion };
 }
+
+export async function cerrarSesion(req: NextRequest): Promise<void> {
+  const token = tokenDeRequest(req);
+  if (token) await revocarSesion(token);
+}
+
+export { DIAS_SESION };

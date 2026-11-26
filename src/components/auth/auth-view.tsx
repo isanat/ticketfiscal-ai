@@ -70,23 +70,22 @@ function useNifLookup(
   valor: string,
   onResultado?: (resultado: RespuestaNif) => void
 ): EstadoNif {
-  const [estado, setEstado] = useState<EstadoNif>({ fase: "inactivo" });
+  // El resultado se guarda junto al NIF que consultó: así el estado visible se deriva
+  // sin llamar a setState sincrónicamente dentro del efecto.
+  const [consulta, setConsulta] = useState<{ nif: string; estado: EstadoNif } | null>(null);
   const callbackRef = useRef(onResultado);
 
   useEffect(() => {
     callbackRef.current = onResultado;
   });
 
+  const nif = valor.trim().toUpperCase();
+
   useEffect(() => {
-    const nif = valor.trim().toUpperCase();
+    if (nif.length < 8) return;
 
-    if (nif.length < 8) {
-      setEstado({ fase: "inactivo" });
-      return;
-    }
-
-    setEstado({ fase: "consultando" });
     const controlador = new AbortController();
+    const publicar = (estado: EstadoNif) => setConsulta({ nif, estado });
 
     const temporizador = setTimeout(() => {
       void (async () => {
@@ -95,34 +94,26 @@ function useNifLookup(
             cache: "no-store",
             signal: controlador.signal,
           });
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status}`);
-          }
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const datos = (await res.json()) as Partial<RespuestaNif> | null;
           if (!datos || typeof datos.formatoValido !== "boolean") {
             throw new Error("Respuesta no válida");
           }
+          if (controlador.signal.aborted) return;
           if (!datos.formatoValido) {
-            setEstado({
+            publicar({
               fase: "invalido",
               motivo: datos.motivo ?? "El formato del NIF/CIF no es válido.",
             });
           } else {
-            setEstado({
+            publicar({
               fase: "valido",
-              vies: datos.vies ?? {
-                consultable: false,
-                valido: null,
-                nombre: null,
-                direccion: null,
-              },
+              vies: datos.vies ?? { consultable: false, valido: null, nombre: null, direccion: null },
             });
           }
           callbackRef.current?.(datos as RespuestaNif);
         } catch {
-          if (!controlador.signal.aborted) {
-            setEstado({ fase: "error" });
-          }
+          if (!controlador.signal.aborted) publicar({ fase: "error" });
         }
       })();
     }, 600);
@@ -131,9 +122,11 @@ function useNifLookup(
       clearTimeout(temporizador);
       controlador.abort();
     };
-  }, [valor]);
+  }, [nif]);
 
-  return estado;
+  if (nif.length < 8) return { fase: "inactivo" };
+  if (!consulta || consulta.nif !== nif) return { fase: "consultando" };
+  return consulta.estado;
 }
 
 function MensajeNif({ estado }: { estado: EstadoNif }) {

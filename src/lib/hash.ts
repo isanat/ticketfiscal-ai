@@ -1,56 +1,42 @@
-// TicketFiscal AI — Hash de contraseñas y tokens de sesión firmados (sin dependencias)
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "crypto";
+// Contraseñas (scrypt asíncrono, parámetros explícitos) y hash de tokens de sesión.
+import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual } from "node:crypto";
 
-const LONGITUD_CLAVE = 64;
+const KEYLEN = 64;
+const PARAMS: { N: number; r: number; p: number; maxmem: number } = { N: 2 ** 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 
-export function hashPassword(password: string): string {
-  const sal = randomBytes(16).toString("hex");
-  const hash = scryptSync(password, sal, LONGITUD_CLAVE).toString("hex");
-  return `${sal}:${hash}`;
+function scryptAsync(password: string, salt: Buffer, params: typeof PARAMS): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    scryptCb(password, salt, KEYLEN, params, (err, key) => (err ? reject(err) : resolve(key)));
+  });
 }
 
-export function verifyPassword(password: string, almacenado: string): boolean {
-  const [sal, hash] = almacenado.split(":");
-  if (!sal || !hash) return false;
-  const calculado = scryptSync(password, sal, LONGITUD_CLAVE);
-  const esperado = Buffer.from(hash, "hex");
-  if (esperado.length !== calculado.length) return false;
-  return timingSafeEqual(calculado, esperado);
+/** Formato: scrypt$N$r$p$sal$hash (hex). Permite subir parámetros sin romper hashes antiguos. */
+export async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16);
+  const key = await scryptAsync(password, salt, PARAMS);
+  return ["scrypt", PARAMS.N, PARAMS.r, PARAMS.p, salt.toString("hex"), key.toString("hex")].join("$");
 }
 
-// ------------------------------------------------------------------ Sesiones
-
-const SECRETO = process.env.SESSION_SECRET ?? "ticketfiscal-demo-hmac-2026";
-export const DIAS_SESION = 30;
-
-/**
- * Token de sesión con firma HMAC: `usuarioId.expiraEnMs.firma`.
- * Stateless: cualquier instancia (incluidas lambdas serverless sin estado
- * compartido) puede validarlo sin tocar la base de datos.
- */
-export function firmarToken(usuarioId: string, expiraEnMs: number): string {
-  const firma = createHmac("sha256", SECRETO).update(`${usuarioId}.${expiraEnMs}`).digest("hex");
-  return `${usuarioId}.${expiraEnMs}.${firma}`;
+export async function verifyPassword(password: string, almacenado: string): Promise<boolean> {
+  const partes = almacenado.split("$");
+  if (partes.length !== 6 || partes[0] !== "scrypt") return false;
+  const [, n, r, p, saltHex, hashHex] = partes;
+  const esperado = Buffer.from(hashHex, "hex");
+  const calculado = await scryptAsync(password, Buffer.from(saltHex, "hex"), {
+    N: Number(n),
+    r: Number(r),
+    p: Number(p),
+    maxmem: PARAMS.maxmem,
+  });
+  return esperado.length === calculado.length && timingSafeEqual(esperado, calculado);
 }
 
-export function verificarToken(token: string): string | null {
-  const partes = token.split(".");
-  if (partes.length !== 3) return null;
-  const [usuarioId, expiraStr, firma] = partes;
-  const expiraEnMs = Number(expiraStr);
-  if (!usuarioId || !Number.isFinite(expiraEnMs)) return null;
-  if (expiraEnMs < Date.now()) return null;
-  const esperada = createHmac("sha256", SECRETO).update(`${usuarioId}.${expiraStr}`).digest("hex");
-  try {
-    const a = Buffer.from(firma, "hex");
-    const b = Buffer.from(esperada, "hex");
-    if (a.length !== b.length) return null;
-    return timingSafeEqual(a, b) ? usuarioId : null;
-  } catch {
-    return null;
-  }
+/** Hash SHA-256 en hex. Se usa para guardar tokens de sesión sin almacenar el token. */
+export function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
 }
 
-export function nuevaExpiracionSesion(): Date {
-  return new Date(Date.now() + DIAS_SESION * 24 * 60 * 60 * 1000);
+/** Token opaco de 256 bits para la cookie de sesión. */
+export function nuevoToken(): string {
+  return randomBytes(32).toString("base64url");
 }

@@ -1,40 +1,60 @@
 import { NextRequest, NextResponse } from "next/server";
-import { crearSesionFirmada, fijarCookieSesion } from "@/lib/auth";
-import { verifyPassword } from "@/lib/hash";
-import { contextoUsuario, findUsuarioPorEmail } from "@/lib/store";
+import { z } from "zod";
+import { fijarCookieSesion } from "@/lib/auth";
+import { error, ipCliente, leerJson, origenPermitido } from "@/lib/http";
+import { hashPassword, verifyPassword } from "@/lib/hash";
+import { log, mensajeError } from "@/lib/logger";
+import { consumirLimite } from "@/lib/rate-limit";
+import { crearSesion } from "@/lib/sesiones";
+import { contextoUsuarioPorId, findUsuarioPorEmail } from "@/lib/store";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const Body = z.object({
+  email: z.email().max(200).transform((v) => v.trim().toLowerCase()),
+  password: z.string().min(1).max(128),
+});
+
+// Hash ficticio para igualar el tiempo de respuesta si el email no existe (evita enumeración).
+let hashFicticio: Promise<string> | null = null;
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as { email?: string; password?: string };
-    const email = (body.email ?? "").trim().toLowerCase();
-    const password = body.password ?? "";
+    if (!origenPermitido(req)) return error("Origen no permitido", 403);
+    const cuerpo = await leerJson(req, Body);
+    if (!cuerpo.ok) return cuerpo.respuesta;
+    const { email, password } = cuerpo.data;
 
-    if (!email || !password) {
-      return NextResponse.json(
-        { error: "Indique su email y su contraseña" },
-        { status: 400 }
-      );
+    const ip = await consumirLimite(`login:ip:${ipCliente(req)}`, 30, 900);
+    const porEmail = await consumirLimite(`login:email:${email}`, 10, 900);
+    if (!ip.permitido || !porEmail.permitido) {
+      const reintento = Math.max(ip.reintentoEnSeg, porEmail.reintentoEnSeg);
+      return error("Demasiados intentos. Espere unos minutos.", 429, { "Retry-After": String(reintento) });
     }
 
     const usuario = await findUsuarioPorEmail(email);
-    if (!usuario || !verifyPassword(password, usuario.passwordHash)) {
-      return NextResponse.json(
-        { error: "Email o contraseña incorrectos" },
-        { status: 401 }
-      );
+    let valida = false;
+    if (usuario) {
+      valida = await verifyPassword(password, usuario.passwordHash);
+    } else {
+      hashFicticio ??= hashPassword("ficticio-no-usar");
+      await verifyPassword(password, await hashFicticio);
+    }
+    if (!usuario || !valida) {
+      log("warn", "auth.login_fallido");
+      return error("Email o contraseña incorrectos", 401);
     }
 
-    const { token, expiraEn } = crearSesionFirmada(usuario.id);
-    const contexto = await contextoUsuario(usuario.id);
-    if (!contexto) throw new Error("No se pudo cargar el contexto del usuario");
+    const { token, expiraEn } = await crearSesion(usuario.id);
+    const contexto = await contextoUsuarioPorId(usuario.id);
+    if (!contexto) return error("No se pudo cargar la cuenta", 500);
 
     const res = NextResponse.json({ usuario: contexto });
     fijarCookieSesion(res, token, expiraEn);
     return res;
-  } catch (error) {
-    console.error("POST /api/auth/login error:", error);
-    return NextResponse.json({ error: "No se pudo iniciar sesión" }, { status: 500 });
+  } catch (e) {
+    log("error", "auth.login_error", { motivo: mensajeError(e) });
+    return error("No se pudo iniciar sesión", 500);
   }
 }

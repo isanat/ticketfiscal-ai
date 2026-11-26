@@ -44,21 +44,24 @@ export function ClientePortal({
 
   const empresa = usuario.empresa;
 
-  const cargar = useCallback(async () => {
-    try {
-      const res = await fetch("/api/documents", { cache: "no-store" });
-      if (res.status === 401) {
-        onLogout();
-        return;
-      }
-      const json = await res.json();
-      setDocs(json.documentos ?? []);
-    } catch {
-      toast({ title: "Error", description: "No se pudieron cargar sus justificantes", variant: "destructive" });
-    } finally {
-      setCargando(false);
-    }
-  }, [onLogout, toast]);
+  // Carga por promesas: el estado se actualiza solo dentro de .then/.finally (fuera del efecto síncrono).
+  const cargar = useCallback(
+    () =>
+      fetch("/api/documents", { cache: "no-store" })
+        .then(async (res) => {
+          if (res.status === 401) {
+            onLogout();
+            return;
+          }
+          const json = await res.json();
+          setDocs(json.documentos ?? []);
+        })
+        .catch(() => {
+          toast({ title: "Error", description: "No se pudieron cargar sus justificantes", variant: "destructive" });
+        })
+        .finally(() => setCargando(false)),
+    [onLogout, toast]
+  );
 
   useEffect(() => {
     void cargar();
@@ -198,7 +201,10 @@ export function ClientePortal({
                   <FileStack className="h-4 w-4 text-primary" />
                   Historial de justificantes
                 </CardTitle>
-                <Button variant="outline" size="sm" className="h-9" onClick={() => void cargar()}>
+                <Button variant="outline" size="sm" className="h-9" onClick={() => {
+                  setCargando(true);
+                  void cargar();
+                }}>
                   <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Actualizar
                 </Button>
               </CardHeader>

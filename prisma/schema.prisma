@@ -1,14 +1,52 @@
-// Prisma schema — TicketFiscal AI
-// Arquitectura multi-tenant: 1 Gestoría → N Empresas → N justificantes.
-// Usuarios con rol GESTOR (pertenecen a una gestoría) o CLIENTE (pertenecen a una empresa).
+// TicketFiscal AI — esquema de datos (PostgreSQL en Neon).
+// Multi-tenant: 1 Gestoría → N Empresas → N Documentos.
+// Dinero en Decimal(14,2): nunca Float.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Conexión agrupada (pooler de Neon) para el runtime serverless.
+  url       = env("DATABASE_URL")
+  // Conexión directa, usada solo por `prisma migrate`.
+  directUrl = env("DIRECT_URL")
+}
+
+enum Rol {
+  GESTOR
+  CLIENTE
+}
+
+enum EstadoEmpresa {
+  PENDIENTE
+  APROBADA
+  RECHAZADA
+}
+
+enum EstadoDocumento {
+  VALIDO
+  REQUIERE_REVISION
+  ILEGIBLE
+}
+
+enum TipoDocumento {
+  FACTURA_COMPLETA
+  FACTURA_SIMPLIFICADA
+  NO_VALIDO
+}
+
+/// Decisión humana de la gestoría sobre el justificante.
+enum RevisionDocumento {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+enum OrigenDocumento {
+  WEB
+  WHATSAPP
 }
 
 model Gestoria {
@@ -22,66 +60,144 @@ model Gestoria {
 }
 
 model Usuario {
-  id           String    @id @default(cuid())
-  email        String    @unique
+  id           String            @id @default(cuid())
+  email        String            @unique
   passwordHash String
   nombre       String
-  rol          String // GESTOR | CLIENTE
+  rol          Rol
   gestoriaId   String?
-  gestoria     Gestoria? @relation(fields: [gestoriaId], references: [id])
-  empresaId    String?
-  empresa      Empresa?  @relation(fields: [empresaId], references: [id])
-  createdAt    DateTime  @default(now())
+  gestoria     Gestoria?         @relation(fields: [gestoriaId], references: [id])
+  empresaId    String?           @unique
+  empresa      Empresa?          @relation(fields: [empresaId], references: [id])
+  sesiones     Sesion[]
+  auditoria    AuditoriaEvento[]
+  createdAt    DateTime          @default(now())
+}
+
+/// Sesión revocable. Se guarda el hash SHA-256 del token, nunca el token.
+model Sesion {
+  id         String    @id @default(cuid())
+  usuarioId  String
+  usuario    Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  expiraEn   DateTime
+  revocadaEn DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([usuarioId])
 }
 
 model Empresa {
-  id         String      @id @default(cuid())
+  id         String        @id @default(cuid())
   nombre     String
-  nif        String
+  nif        String        @unique
   direccion  String?
   ciudad     String?
-  whatsapp   String?
+  /// Número en formato E.164 sin "+" (p. ej. 34600111222). Identifica el canal WhatsApp.
+  whatsapp   String?       @unique
+  estado     EstadoEmpresa @default(PENDIENTE)
   gestoriaId String?
-  gestoria   Gestoria?   @relation(fields: [gestoriaId], references: [id])
+  gestoria   Gestoria?     @relation(fields: [gestoriaId], references: [id])
   usuarios   Usuario[]
   documentos Documento[]
-  createdAt  DateTime    @default(now())
+  createdAt  DateTime      @default(now())
+
+  @@index([gestoriaId, estado])
 }
 
 model Documento {
-  id            String   @id @default(cuid())
-  empresaId     String
-  empresa       Empresa  @relation(fields: [empresaId], references: [id])
+  id        String  @id @default(cuid())
+  empresaId String
+  empresa   Empresa @relation(fields: [empresaId], references: [id])
 
-  // Resultado de la extracción IA
-  estado        String // VALIDO | REQUIERE_REVISION | ILEGIBLE
-  tipoDocumento String // FACTURA_COMPLETA | FACTURA_SIMPLIFICADA | NO_VALIDO
-  ivaDeducible  Boolean  @default(false)
-  emisorNombre  String?
-  emisorNif     String?
-  nifEmisorValido Boolean?
-  receptorNombre String?
-  receptorNif   String?
+  // Resultado de la extracción y de las reglas deterministas
+  estado            EstadoDocumento
+  tipoDocumento     TipoDocumento
+  ivaDeducible      Boolean         @default(false)
+  emisorNombre      String?
+  emisorNif         String?
+  nifEmisorValido   Boolean?
+  receptorNombre    String?
+  receptorNif       String?
   nifReceptorValido Boolean?
-  numeroFactura String?
-  fechaEmision  String? // YYYY-MM-DD (fecha de devengo)
-  moneda        String   @default("EUR")
+  numeroFactura     String?
+  fechaEmision      DateTime?       @db.Date
+  moneda            String          @default("EUR")
 
-  // Impuestos (primera línea del desglose)
-  baseImponible Float    @default(0)
-  porcentajeIva Float    @default(0)
-  cuotaIva      Float    @default(0)
-  irpfPorcentaje Float   @default(0)
-  irpfImporte   Float    @default(0)
-  totalFactura  Float    @default(0)
+  // Totales (suma de LineaImpuesto)
+  baseImponible  Decimal         @db.Decimal(14, 2)
+  porcentajeIva  Decimal         @db.Decimal(5, 2)
+  cuotaIva       Decimal         @db.Decimal(14, 2)
+  irpfPorcentaje Decimal         @db.Decimal(5, 2)
+  irpfImporte    Decimal         @db.Decimal(14, 2)
+  totalFactura   Decimal         @db.Decimal(14, 2)
+  lineas         LineaImpuesto[]
 
-  cuentaPgc     String?
-  confianza     Float    @default(0)
-  motivoRevision String?
-  mensajeWhatsapp String?
+  cuentaPgc       String?
+  confianza       Float   @default(0)
+  motivoRevision  String? @db.Text
+  mensajeWhatsapp String? @db.Text
 
-  // Metadatos
-  imagenNombre  String?
-  trimestre     String? // 1T2026 ... 4T2026 (por fecha de devengo)
-  createdAt     DateTime @default(now())
+  // Evidencia y trazabilidad
+  imagenNombre      String?
+  imagenMime        String
+  imagenBytes       Int
+  /// SHA-256 del binario original: deduplicación e integridad.
+  imagenHash        String
+  origen            OrigenDocumento @default(WEB)
+  /// Id del mensaje de WhatsApp (wamid): idempotencia del webhook.
+  whatsappMensajeId String?         @unique
+  trimestre         String? // 1T2026 … 4T2026 (fecha de devengo)
+
+  // Revisión humana por la gestoría
+  revision      RevisionDocumento @default(PENDIENTE)
+  revisadoEn    DateTime?
+  revisadoPorId String?
+
+  // Borrado lógico: un registro fiscal no se destruye.
+  eliminadoEn DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Deduplicación por hash en la aplicación (filtrando borrados lógicos).
+  @@index([empresaId, imagenHash])
+  @@index([empresaId, trimestre])
+  @@index([empresaId, numeroFactura])
+}
+
+/// Desglose de IVA por tipo. Una factura puede tener varias líneas (10 % y 21 %).
+model LineaImpuesto {
+  id            String    @id @default(cuid())
+  documentoId   String
+  documento     Documento @relation(fields: [documentoId], references: [id], onDelete: Cascade)
+  orden         Int
+  baseImponible Decimal   @db.Decimal(14, 2)
+  porcentajeIva Decimal   @db.Decimal(5, 2)
+  cuotaIva      Decimal   @db.Decimal(14, 2)
+
+  @@unique([documentoId, orden])
+}
+
+/// Contador para límites de uso (login, registro, extracción IA…). Compatible con serverless.
+model LimiteUso {
+  clave         String   @id
+  contador      Int
+  ventanaInicio DateTime
+}
+
+/// Registro de cambios sobre datos fiscales.
+model AuditoriaEvento {
+  id         String   @id @default(cuid())
+  usuarioId  String?
+  usuario    Usuario? @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+  gestoriaId String?
+  accion     String
+  entidad    String
+  entidadId  String
+  detalle    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([gestoriaId, createdAt])
+  @@index([entidad, entidadId])
 }

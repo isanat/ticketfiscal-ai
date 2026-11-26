@@ -15,7 +15,8 @@ import {
   TriangleAlert,
   Calculator,
   CheckCircle2,
-  Database,
+  Check,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -64,33 +65,32 @@ export function GestorPortal({
   const [detalle, setDetalle] = useState<Documento | null>(null);
   const [eliminando, setEliminando] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
-  const [modo, setModo] = useState<string | null>(null);
   const [menuAbierto, setMenuAbierto] = useState(false);
 
   const gestoria = usuario.gestoria;
 
-  const cargar = useCallback(async () => {
-    setCargando(true);
-    try {
-      const [resDocs, resEmp] = await Promise.all([
-        fetch("/api/documents", { cache: "no-store" }),
-        fetch("/api/empresas", { cache: "no-store" }),
-      ]);
-      if (resDocs.status === 401 || resEmp.status === 401) {
-        onLogout();
-        return;
-      }
-      const jsonDocs = await resDocs.json();
-      const jsonEmp = await resEmp.json();
-      setDocs(jsonDocs.documentos ?? []);
-      setModo(jsonDocs.modo ?? null);
-      if (resEmp.ok) setEmpresas(jsonEmp.empresas ?? []);
-    } catch {
-      toast({ title: "Error", description: "No se pudo cargar el panel", variant: "destructive" });
-    } finally {
-      setCargando(false);
-    }
-  }, [onLogout]);
+  // Carga por promesas: el estado se actualiza solo dentro de .then/.finally (fuera del efecto síncrono).
+  const cargar = useCallback(
+    () =>
+      Promise.all([fetch("/api/documents", { cache: "no-store" }), fetch("/api/empresas", { cache: "no-store" })])
+        .then(async ([resDocs, resEmp]) => {
+          if (resDocs.status === 401 || resEmp.status === 401) {
+            onLogout();
+            return;
+          }
+          const jsonDocs = await resDocs.json();
+          setDocs(jsonDocs.documentos ?? []);
+          if (resEmp.ok) {
+            const jsonEmp = await resEmp.json();
+            setEmpresas(jsonEmp.empresas ?? []);
+          }
+        })
+        .catch(() => {
+          toast({ title: "Error", description: "No se pudo cargar el panel", variant: "destructive" });
+        })
+        .finally(() => setCargando(false)),
+    [onLogout]
+  );
 
   useEffect(() => {
     void cargar();
@@ -150,10 +150,42 @@ export function GestorPortal({
     return { validos, pendientes, ivaDeducible, retenciones, porTipo };
   }, [filtrados]);
 
+  async function revisarDocumento(id: string, revision: "APROBADO" | "RECHAZADO") {
+    try {
+      const res = await fetch(`/api/documents/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revision }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Error");
+      setDocs((d) => d.map((x) => (x.id === id ? (json.documento as Documento) : x)));
+      toast({ title: revision === "APROBADO" ? "Justificante aprobado" : "Justificante rechazado" });
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "No se pudo guardar", variant: "destructive" });
+    }
+  }
+
+  async function cambiarEstadoEmpresa(id: string, estado: "APROBADA" | "RECHAZADA") {
+    try {
+      const res = await fetch(`/api/empresas/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ estado }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Error");
+      setEmpresas((lista) => lista.map((e) => (e.id === id ? { ...e, estado } : e)));
+      toast({ title: estado === "APROBADA" ? "Empresa aprobada" : "Empresa rechazada" });
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "No se pudo guardar", variant: "destructive" });
+    }
+  }
+
   async function eliminar(id: string) {
     setEliminando(id);
     try {
-      const res = await fetch(`/api/documents?id=${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/documents?id=${encodeURIComponent(id)}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
       setDocs((d) => d.filter((x) => x.id !== id));
       toast({ title: "Documento retirado del lote" });
@@ -291,7 +323,6 @@ export function GestorPortal({
                 </h1>
                 <p className="text-xs text-muted-foreground">
                   {docs.length} justificantes en total
-                  {modo === "memoria" && " · demo con datos en memoria"}
                 </p>
               </div>
             </div>
@@ -309,7 +340,10 @@ export function GestorPortal({
                   ))}
                 </SelectContent>
               </Select>
-              <Button variant="outline" size="sm" className="h-9" onClick={() => void cargar()}>
+              <Button variant="outline" size="sm" className="h-9" onClick={() => {
+                  setCargando(true);
+                  void cargar();
+                }}>
                 <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Actualizar
               </Button>
             </div>
@@ -341,6 +375,8 @@ export function GestorPortal({
                       trimestres={trimestres}
                       onDetalle={setDetalle}
                       onEliminar={eliminar}
+                  onAprobar={(id) => void revisarDocumento(id, "APROBADO")}
+                  onRechazar={(id) => void revisarDocumento(id, "RECHAZADO")}
                       eliminando={eliminando}
                       vacio="Sin justificantes con estos filtros. En cuanto una empresa reenvíe su primer ticket por WhatsApp, aparecerá aquí en segundos."
                     />
@@ -425,12 +461,29 @@ export function GestorPortal({
                           <div className="rounded-lg bg-secondary p-2.5">
                             <Building2 className="h-5 w-5 text-primary" />
                           </div>
-                          {e.pendientes > 0 ? (
+                          {e.estado === "PENDIENTE" ? (
+                            <Badge className="bg-sky-700 text-[10px]">Pendiente de aprobación</Badge>
+                          ) : e.estado === "RECHAZADA" ? (
+                            <Badge className="bg-red-700 text-[10px]">Rechazada</Badge>
+                          ) : e.pendientes > 0 ? (
                             <Badge className="bg-amber-600 text-[10px]">{e.pendientes} a revisar</Badge>
                           ) : (
                             <Badge className="bg-emerald-700 text-[10px]">Al día</Badge>
                           )}
                         </div>
+                        {e.estado === "PENDIENTE" && (
+                          <div
+                            className="mb-3 flex gap-2"
+                            onClick={(ev) => ev.stopPropagation()}
+                          >
+                            <Button size="sm" className="h-8 text-xs" onClick={() => void cambiarEstadoEmpresa(e.id, "APROBADA")}>
+                              <Check className="mr-1 h-3.5 w-3.5" /> Aprobar alta
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void cambiarEstadoEmpresa(e.id, "RECHAZADA")}>
+                              <X className="mr-1 h-3.5 w-3.5" /> Rechazar
+                            </Button>
+                          </div>
+                        )}
                         <h3 className="font-serif text-base font-semibold leading-snug">{e.nombre}</h3>
                         <p className="mt-0.5 text-xs text-muted-foreground">
                           NIF {e.nif}
@@ -618,11 +671,6 @@ export function GestorPortal({
               {gestoria.nombre} · {usuario.nombre} — TicketFiscal AI
             </span>
             <span className="flex items-center gap-1.5">
-              {modo === "memoria" && (
-                <>
-                  <Database className="h-3 w-3" /> Demo con datos en memoria ·
-                </>
-              )}
               Verifique cada asiento antes de presentar las autoliquidaciones ante la AEAT.
             </span>
           </p>
@@ -666,6 +714,8 @@ function TablaDocumentos({
   trimestres,
   onDetalle,
   onEliminar,
+  onAprobar,
+  onRechazar,
   eliminando,
   vacio,
 }: {
@@ -676,6 +726,8 @@ function TablaDocumentos({
   trimestres: string[];
   onDetalle: (d: Documento) => void;
   onEliminar: (id: string) => void;
+  onAprobar: (id: string) => void;
+  onRechazar: (id: string) => void;
   eliminando: string | null;
   vacio: string;
 }) {
@@ -769,6 +821,28 @@ function TablaDocumentos({
                         >
                           <Eye className="h-3.5 w-3.5" />
                         </Button>
+                        {d.revision !== "APROBADO" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-emerald-700 hover:text-emerald-700"
+                            onClick={() => onAprobar(d.id)}
+                            aria-label="Aprobar justificante"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {d.revision === "PENDIENTE" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-amber-700 hover:text-amber-700"
+                            onClick={() => onRechazar(d.id)}
+                            aria-label="Rechazar justificante"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"

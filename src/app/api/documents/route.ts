@@ -1,238 +1,142 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  FISCAL_SYSTEM_PROMPT,
-  parseExtraccion,
-  validarMatematicamente,
-  trimestreDe,
-  type ExtraccionFiscal,
-} from "@/lib/fiscal";
-import { validarNifsDocumento } from "@/lib/nif";
-import { SEMILLA_DOCUMENTOS } from "@/lib/seed";
-import {
-  crearDocumento,
-  eliminarDocumento,
-  listarDocumentos,
-  modoDatos,
-  obtenerEmpresa,
-  type EntradaDocumento,
-} from "@/lib/store";
-import type { Documento } from "@/lib/types";
-import { visionChat } from "@/lib/zai-server";
-import { requiereRol, usuarioDesdeRequest } from "@/lib/auth";
+import { z } from "zod";
+import { exigirRol, sesionDeRequest } from "@/lib/auth";
+import { error, leerJson, origenPermitido } from "@/lib/http";
+import { log, mensajeError } from "@/lib/logger";
+import { consumirLimite } from "@/lib/rate-limit";
+import { decodificarJustificante, MAX_BYTES_JUSTIFICANTE } from "@/lib/archivos";
+import { LimiteIaAlcanzado, procesarJustificante } from "@/lib/pipeline";
+import { MotorVisionNoDisponible } from "@/lib/vision";
+import { eliminarDocumentoLogico, listarDocumentos, obtenerEmpresa } from "@/lib/store";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-interface Body {
-  imageBase64?: string; // data URL completa o base64 puro
-  mimeType?: string;
-  imagenNombre?: string;
-}
+const TRIMESTRE = /^[1-4]T\d{4}$/;
 
-/**
- * Modo demostración: sin motor de IA (despliegues serverless sin credenciales)
- * y con una muestra conocida, se devuelve la extracción preconfigurada.
- */
-function extraccionDemo(
-  imagenNombre: string | undefined,
-  empresaId: string
-): EntradaDocumento | null {
-  if (!imagenNombre) return null;
-  const doc = SEMILLA_DOCUMENTOS.find(
-    (d) => d.imagenNombre === imagenNombre && d.empresaId === empresaId
-  );
-  if (!doc) return null;
-  const { id: _id, createdAt: _createdAt, trimestre: _trimestre, ...entrada } = doc;
-  return entrada;
-}
+const SubidaBody = z.object({
+  imageBase64: z.string().min(1).max(Math.ceil((MAX_BYTES_JUSTIFICANTE * 4) / 3) + 16),
+  mimeType: z.string().max(40).optional(),
+  imagenNombre: z.string().max(200).optional(),
+});
 
+const FiltroQuery = z.object({
+  trimestre: z.string().regex(TRIMESTRE).optional(),
+  empresaId: z.string().max(64).optional(),
+  soloAprobados: z.enum(["1", "0"]).optional(),
+});
+
+/** Lista documentos: la gestoría ve su cartera; el cliente, solo los de su empresa. */
 export async function GET(req: NextRequest) {
   try {
-    const sesion = await usuarioDesdeRequest(req);
-    if (!sesion) {
-      return NextResponse.json({ error: "Sin sesión activa" }, { status: 401 });
-    }
+    const sesion = await sesionDeRequest(req);
+    if (!sesion) return error("Sin sesión activa", 401);
 
-    const trimestre = req.nextUrl.searchParams.get("trimestre");
-    const empresaId = req.nextUrl.searchParams.get("empresaId");
+    const q = FiltroQuery.safeParse({
+      trimestre: req.nextUrl.searchParams.get("trimestre") ?? undefined,
+      empresaId: req.nextUrl.searchParams.get("empresaId") ?? undefined,
+      soloAprobados: req.nextUrl.searchParams.get("soloAprobados") ?? undefined,
+    });
+    if (!q.success) return error("Filtros no válidos", 400);
 
     if (sesion.usuario.rol === "GESTOR") {
       const gestoriaId = sesion.usuario.gestoria?.id;
-      if (!gestoriaId) {
-        return NextResponse.json({ error: "Cuenta sin gestoría asociada" }, { status: 400 });
-      }
+      if (!gestoriaId) return error("Cuenta sin gestoría asociada", 400);
       const documentos = await listarDocumentos({
         gestoriaId,
-        empresaId: empresaId ?? undefined,
-        trimestre: trimestre ?? undefined,
+        empresaId: q.data.empresaId,
+        trimestre: q.data.trimestre,
+        soloAprobados: q.data.soloAprobados === "1",
       });
-      return NextResponse.json({ documentos, modo: modoDatos() });
+      return NextResponse.json({ documentos }, { headers: { "Cache-Control": "no-store" } });
     }
 
-    // CLIENTE: solo los documentos de su empresa
-    const miEmpresaId = sesion.usuario.empresa?.id;
-    if (!miEmpresaId) {
-      return NextResponse.json({ error: "Cuenta sin empresa asociada" }, { status: 400 });
-    }
-    const documentos = await listarDocumentos({
-      empresaId: miEmpresaId,
-      trimestre: trimestre ?? undefined,
-    });
-    return NextResponse.json({ documentos, modo: modoDatos() });
-  } catch (error) {
-    console.error("GET /api/documents error:", error);
-    return NextResponse.json({ error: "Error al listar documentos" }, { status: 500 });
+    const empresaId = sesion.usuario.empresa?.id;
+    if (!empresaId) return error("Cuenta sin empresa asociada", 400);
+    const documentos = await listarDocumentos({ empresaId, trimestre: q.data.trimestre });
+    return NextResponse.json({ documentos }, { headers: { "Cache-Control": "no-store" } });
+  } catch (e) {
+    log("error", "documentos.list_error", { motivo: mensajeError(e) });
+    return error("Error al listar documentos", 500);
   }
 }
 
+/** Subida desde el canal web (simulador de WhatsApp incluido). Solo cliente con empresa aprobada. */
 export async function POST(req: NextRequest) {
   try {
-    const sesion = await usuarioDesdeRequest(req);
-    const cliente = requiereRol(sesion, "CLIENTE");
-    if ("error" in cliente) {
-      return cliente.error.status === 403
-        ? NextResponse.json(
-            {
-              error:
-                "Los justificantes llegan por el WhatsApp de cada empresa. Entre con la cuenta de cliente para reenviar uno.",
-            },
-            { status: 403 }
-          )
-        : cliente.error;
+    if (!origenPermitido(req)) return error("Origen no permitido", 403);
+    const sesion = exigirRol(await sesionDeRequest(req), "CLIENTE");
+    if (!sesion.ok) {
+      if (sesion.respuesta.status === 403) {
+        return error("Los justificantes llegan por el WhatsApp de cada empresa. Entre con la cuenta de cliente para reenviar uno.", 403);
+      }
+      return sesion.respuesta;
+    }
+    const empresaId = sesion.sesion.usuario.empresa?.id;
+    if (!empresaId) return error("Cuenta sin empresa asociada", 400);
+
+    const limiteUsuario = await consumirLimite(`docs:usuario:${sesion.sesion.usuarioId}`, 60, 3600);
+    if (!limiteUsuario.permitido) {
+      return error("Ha enviado demasiados justificantes seguidos. Espere unos minutos.", 429, {
+        "Retry-After": String(limiteUsuario.reintentoEnSeg),
+      });
     }
 
-    const empresaId = cliente.usuario.empresa?.id;
-    if (!empresaId) {
-      return NextResponse.json({ error: "Cuenta sin empresa asociada" }, { status: 400 });
-    }
     const empresa = await obtenerEmpresa(empresaId);
-    if (!empresa) {
-      return NextResponse.json({ error: "No se encontró la empresa" }, { status: 400 });
+    if (!empresa) return error("No se encontró la empresa", 400);
+    if (empresa.estado !== "APROBADA") {
+      return error("Su empresa está pendiente de aprobación por su gestoría.", 403);
     }
 
-    const body = (await req.json()) as Body;
-    if (!body.imageBase64) {
-      return NextResponse.json({ error: "Falta la imagen del justificante" }, { status: 400 });
-    }
+    const cuerpo = await leerJson(req, SubidaBody, Math.ceil((MAX_BYTES_JUSTIFICANTE * 4) / 3) + 4096);
+    if (!cuerpo.ok) return cuerpo.respuesta;
 
-    // Normalizar a data URL
-    let dataUrl = body.imageBase64;
-    if (!dataUrl.startsWith("data:")) {
-      const mime = body.mimeType || "image/png";
-      dataUrl = `data:${mime};base64,${body.imageBase64}`;
-    }
+    const archivo = decodificarJustificante(cuerpo.data.imageBase64, cuerpo.data.mimeType);
+    if (!archivo.ok) return error(archivo.motivo, 400);
 
-    const isPdf = dataUrl.startsWith("data:application/pdf");
-    const mediaItem = isPdf
-      ? { type: "file_url", file_url: { url: dataUrl } }
-      : { type: "image_url", image_url: { url: dataUrl } };
-
-    const clienteNombre = cliente.usuario.nombre;
-    const clienteNif = empresa.nif;
-
-    // Llamada al motor de visión con reintento único
-    let raw = "";
-    let lastError: unknown = null;
-    for (let attempt = 0; attempt < 2 && !raw; attempt++) {
-      try {
-        raw = await visionChat(FISCAL_SYSTEM_PROMPT, [
-          {
-            type: "text",
-            text: `Analiza este justificante de gasto enviado por WhatsApp por ${clienteNombre}, de la empresa ${empresa.nombre} (NIF ${clienteNif}). Devuelve el JSON estricto.`,
-          },
-          mediaItem,
-        ]);
-      } catch (e) {
-        lastError = e;
-        console.error(`Intento ${attempt + 1} de extracción falló:`, e);
-      }
-    }
-
-    // Modo demostración (sin motor IA): muestra conocida → respuesta simulada
-    if (!raw) {
-      const demo = extraccionDemo(body.imagenNombre, empresaId);
-      if (demo) {
-        const doc = await crearDocumento(demo);
-        return NextResponse.json({ documento: doc, avisos: [], simulado: true });
-      }
-      throw lastError instanceof Error ? lastError : new Error("El motor de visión no respondió");
-    }
-
-    // Parsear y validar (matemática AEAT + dígito de control NIF/CIF determinístico)
-    const ext = parseExtraccion(raw) as ExtraccionFiscal;
-    const validacion = validarMatematicamente(ext);
-    const cruceNif = validarNifsDocumento({
-      tipoDocumento: ext.tipo_documento,
-      emisorNif: ext.emisor?.nif_cif ?? null,
-      receptorNif: ext.receptor?.nif_cif ?? null,
+    const r = await procesarJustificante({
+      empresa: { id: empresa.id, nombre: empresa.nombre, nif: empresa.nif, gestoriaId: empresa.gestoriaId },
+      bytes: archivo.bytes,
+      mime: archivo.mime,
+      nombreImagen: cuerpo.data.imagenNombre ?? null,
+      origen: "WEB",
     });
-
-    const avisos = [...validacion.avisos, ...cruceNif.avisos];
-    const estado =
-      validacion.estado === "VALIDO" && cruceNif.avisos.length > 0
-        ? "REQUIERE_REVISION"
-        : validacion.estado;
-    const motivo =
-      estado === "REQUIERE_REVISION"
-        ? [ext.motivo_revision, ...avisos].filter(Boolean).join(" ")
-        : validacion.estado === "ILEGIBLE"
-          ? validacion.motivo ?? ext.motivo_revision
-          : null;
-
-    const linea = ext.desglose_impuestos[0];
-    const doc = await crearDocumento({
-      empresaId,
-      estado,
-      tipoDocumento: ext.tipo_documento,
-      ivaDeducible: Boolean(ext.iva_deducible),
-      emisorNombre: ext.emisor?.nombre ?? null,
-      emisorNif: ext.emisor?.nif_cif ?? null,
-      nifEmisorValido: cruceNif.emisorValido,
-      receptorNombre: ext.receptor?.nombre ?? null,
-      receptorNif: ext.receptor?.nif_cif ?? null,
-      nifReceptorValido: cruceNif.receptorValido,
-      numeroFactura: ext.datos_factura?.numero_factura ?? null,
-      fechaEmision: ext.datos_factura?.fecha_emision ?? null,
-      moneda: ext.datos_factura?.moneda || "EUR",
-      baseImponible: linea?.base_imponible ?? 0,
-      porcentajeIva: linea?.porcentaje_iva ?? 0,
-      cuotaIva: linea?.cuota_iva ?? 0,
-      irpfPorcentaje: ext.retencion_irpf?.porcentaje ?? 0,
-      irpfImporte: ext.retencion_irpf?.importe ?? 0,
-      totalFactura: ext.total_factura ?? 0,
-      cuentaPgc: ext.cuenta_pgc_sugerida ?? null,
-      confianza: ext.confianza_extraccion ?? 0,
-      motivoRevision: motivo,
-      mensajeWhatsapp: ext.mensaje_whatsapp_cliente ?? null,
-      imagenNombre: body.imagenNombre ?? null,
-      trimestre: trimestreDe(ext.datos_factura?.fecha_emision ?? null),
-    } satisfies EntradaDocumento);
-
-    const documento: Documento = doc;
-    return NextResponse.json({ documento, avisos });
-  } catch (error) {
-    console.error("POST /api/documents error:", error);
-    const msg = error instanceof Error ? error.message : "Error desconocido";
     return NextResponse.json(
-      { error: `No se pudo procesar el justificante: ${msg}` },
-      { status: 500 }
+      { documento: r.documento, duplicado: r.estado === "duplicado", simulado: r.simulado },
+      { status: r.estado === "creado" ? 201 : 200 }
     );
+  } catch (e) {
+    if (e instanceof MotorVisionNoDisponible) {
+      log("error", "documentos.vision_no_disponible", { motivo: mensajeError(e) });
+      return error("El motor de extracción no está disponible ahora. Reintente en unos minutos.", 503);
+    }
+    if (e instanceof LimiteIaAlcanzado) {
+      return error("Ha alcanzado el límite diario de justificantes de su empresa.", 429);
+    }
+    log("error", "documentos.post_error", { motivo: mensajeError(e) });
+    return error("No se pudo procesar el justificante. Inténtelo de nuevo.", 500);
   }
 }
 
+/** Retira un documento del lote (borrado lógico). Solo gestoría, solo sus documentos. */
 export async function DELETE(req: NextRequest) {
   try {
-    const sesion = await usuarioDesdeRequest(req);
-    // Solo la gestoría puede retirar documentos del lote (integridad fiscal:
-    // el cliente envía, pero no borra).
-    const gestor = requiereRol(sesion, "GESTOR");
-    if ("error" in gestor) return gestor.error;
+    if (!origenPermitido(req)) return error("Origen no permitido", 403);
+    const sesion = exigirRol(await sesionDeRequest(req), "GESTOR");
+    if (!sesion.ok) return sesion.respuesta;
+    const gestoriaId = sesion.sesion.usuario.gestoria?.id;
+    if (!gestoriaId) return error("Cuenta sin gestoría asociada", 400);
 
-    const id = req.nextUrl.searchParams.get("id");
-    await eliminarDocumento(id);
-    return NextResponse.json({ ok: true, deleted: id ?? "all" });
-  } catch (error) {
-    console.error("DELETE /api/documents error:", error);
-    return NextResponse.json({ error: "Error al eliminar" }, { status: 500 });
+    // Sin id no se borra nada: nunca hay un borrado masivo.
+    const id = req.nextUrl.searchParams.get("id") ?? "";
+    if (!id || id.length > 64) return error("Indique el documento a retirar", 400);
+
+    const ok = await eliminarDocumentoLogico(id, gestoriaId, sesion.sesion.usuarioId);
+    if (!ok) return error("Documento no encontrado", 404);
+    return NextResponse.json({ ok: true, id });
+  } catch (e) {
+    log("error", "documentos.delete_error", { motivo: mensajeError(e) });
+    return error("Error al eliminar", 500);
   }
 }

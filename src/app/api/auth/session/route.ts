@@ -1,16 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { usuarioDesdeRequest } from "@/lib/auth";
+import { RESPUESTA_SIN_SESION, sesionDeRequest } from "@/lib/auth";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  try {
-    const sesion = await usuarioDesdeRequest(req);
-    if (!sesion) {
-      return NextResponse.json({ error: "Sin sesión activa" }, { status: 401 });
-    }
-    return NextResponse.json({ usuario: sesion.usuario });
-  } catch {
-    return NextResponse.json({ error: "Sin sesión activa" }, { status: 401 });
-  }
+  const sesion = await sesionDeRequest(req);
+  if (!sesion) return RESPUESTA_SIN_SESION();
+  return NextResponse.json({ usuario: sesion.usuario }, { headers: { "Cache-Control": "no-store" } });
 }

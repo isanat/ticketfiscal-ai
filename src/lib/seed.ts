@@ -20,14 +20,14 @@ export interface UsuarioSeed {
   email: string;
   nombre: string;
   rol: Rol;
-  password: string; // en claro solo aquí; el store la hashea al sembrar
+  password: string; // en claro solo aquí; el seed la hashea antes de guardarla
   gestoriaId: string | null;
   empresaId: string | null;
 }
 
-export type EmpresaSeed = Omit<Empresa, "createdAt">;
+export type EmpresaSeed = Omit<Empresa, "createdAt" | "estado">;
 
-export type DocumentoSeed = Omit<Documento, "createdAt">;
+export type DocumentoSeed = Omit<Documento, "createdAt" | "desglose" | "revision" | "revisadoEn" | "origen">;
 
 export const SEMILLA_GESTORIAS: GestoriaSeed[] = [
   {

@@ -1,33 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { error, ipCliente } from "@/lib/http";
+import { log, mensajeError } from "@/lib/logger";
 import { normalizarNif, validarIdentificadorFiscal } from "@/lib/nif";
+import { consumirLimite } from "@/lib/rate-limit";
 import type { RespuestaNifLookup } from "@/lib/types";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 interface RespuestaVies {
   isValid?: boolean;
-  userError?: string;
   name?: string;
   address?: string;
-  viesApproximate?: {
-    name?: string;
-    street?: string;
-    postalCode?: string;
-    city?: string;
-  };
+  viesApproximate?: { name?: string; street?: string; postalCode?: string; city?: string };
 }
 
 function limpiar(valor: string | undefined): string | null {
   if (!valor) return null;
   const v = valor.trim();
   if (!v || v === "---" || v === "-" || v === "—") return null;
-  return v;
+  return v.slice(0, 200);
 }
 
 /**
- * Consulta el censo VIES de la Comisión Europea (REST, sin clave).
- * VIES enriquece, nunca filtra: un NIF válido no registrado en VIES es lo
- * habitual en autónomos sin operaciones intracomunitarias.
+ * Censo VIES (Comisión Europea). VIES enriquece, nunca filtra: un NIF válido no
+ * registrado en VIES es lo habitual en autónomos sin operaciones intracomunitarias.
  */
 async function consultarVies(nif: string): Promise<RespuestaNifLookup["vies"]> {
   try {
@@ -39,13 +37,10 @@ async function consultarVies(nif: string): Promise<RespuestaNifLookup["vies"]> {
         cache: "no-store",
       }
     );
-    if (!res.ok) {
-      return { consultable: false, valido: null, nombre: null, direccion: null };
-    }
+    if (!res.ok) return { consultable: false, valido: null, nombre: null, direccion: null };
     const json = (await res.json()) as RespuestaVies;
 
-    let nombre = limpiar(json.name);
-    let calle = limpiar(json.viesApproximate?.street);
+    const calle = limpiar(json.viesApproximate?.street);
     const cp = limpiar(json.viesApproximate?.postalCode);
     const ciudad = limpiar(json.viesApproximate?.city);
     let direccion: string | null = null;
@@ -54,7 +49,7 @@ async function consultarVies(nif: string): Promise<RespuestaNifLookup["vies"]> {
     } else {
       direccion = limpiar(json.address);
     }
-    if (!nombre) nombre = limpiar(json.viesApproximate?.name);
+    const nombre = limpiar(json.name) ?? limpiar(json.viesApproximate?.name);
 
     return {
       consultable: true,
@@ -63,22 +58,22 @@ async function consultarVies(nif: string): Promise<RespuestaNifLookup["vies"]> {
       direccion: json.isValid ? direccion : null,
     };
   } catch {
-    // El servicio VIES cae con cierta frecuencia: no debe bloquear el alta.
     return { consultable: false, valido: null, nombre: null, direccion: null };
   }
 }
 
+const Query = z.object({ nif: z.string().trim().min(8).max(20) });
+
 export async function GET(req: NextRequest) {
   try {
-    const nifParam = req.nextUrl.searchParams.get("nif") ?? "";
-    const nif = normalizarNif(nifParam);
-    if (nif.length < 8) {
-      return NextResponse.json(
-        { error: "Indique un NIF/CIF completo" },
-        { status: 400 }
-      );
+    const limite = await consumirLimite(`nif:ip:${ipCliente(req)}`, 30, 900);
+    if (!limite.permitido) {
+      return error("Demasiadas consultas. Espere unos minutos.", 429, { "Retry-After": String(limite.reintentoEnSeg) });
     }
+    const q = Query.safeParse({ nif: req.nextUrl.searchParams.get("nif") ?? "" });
+    if (!q.success) return error("Indique un NIF/CIF completo", 400);
 
+    const nif = normalizarNif(q.data.nif);
     const validacion = validarIdentificadorFiscal(nif);
     const respuesta: RespuestaNifLookup = {
       nif,
@@ -86,16 +81,11 @@ export async function GET(req: NextRequest) {
       motivo: validacion.valido ? null : validacion.motivo,
       vies: { consultable: false, valido: null, nombre: null, direccion: null },
     };
+    if (validacion.valido) respuesta.vies = await consultarVies(nif);
 
-    if (validacion.valido) {
-      respuesta.vies = await consultarVies(nif);
-    }
-
-    return NextResponse.json(respuesta, {
-      headers: { "Cache-Control": "no-store" },
-    });
-  } catch (error) {
-    console.error("GET /api/nif/lookup error:", error);
-    return NextResponse.json({ error: "No se pudo validar el NIF/CIF" }, { status: 500 });
+    return NextResponse.json(respuesta, { headers: { "Cache-Control": "no-store" } });
+  } catch (e) {
+    log("error", "nif.lookup_error", { motivo: mensajeError(e) });
+    return error("No se pudo validar el NIF/CIF", 500);
   }
 }

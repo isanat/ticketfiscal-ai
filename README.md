@@ -1,116 +1,134 @@
 # TicketFiscal AI
 
-> Del WhatsApp del cliente al asiento contable. Plataforma fiscal multi-tenant para gestorías y asesorías españolas: captura de justificantes por WhatsApp, extracción con IA, validación según la AEAT (RD 1619/2012) y exportación del lote de asientos a a3, Sage o Holded.
-
-Sistema SaaS con autenticación y dos portales separados:
-
-- **Portal de gestoría** — una cuenta de asesor gestiona toda su cartera: resumen de la cartera, empresas con sus métricas, bandeja de revisión con el motivo exacto de cada pendiente, autoliquidación del Modelo 303 por tipo de IVA y exportación CSV del lote de asientos.
-- **Portal de empresa** — el cliente reenvía la foto del ticket o factura por WhatsApp (simulación fiel del canal real), ve el estado de cada justificante y los avisos educativos (p. ej. IVA no deducible por factura simplificada, art. 97 LIVA).
-
-## Cuentas de demostración
-
-| Perfil | Email | Contraseña |
-| --- | --- | --- |
-| Gestoría (Ana Ruiz) | `ana@gestoriaalboraya.es` | `demo1234` |
-| Cliente — Taller Pérez e Hijos | `juan@tallerperez.es` | `demo1234` |
-| Cliente — Panadería Dulce Levante | `marta@panaderiadulce.es` | `demo1234` |
-| Cliente — Clínica Dental Sonrisa | `maria@clinicadentalsonrisa.es` | `demo1234` |
-
-Cartera sembrada: 1 gestoría, 3 empresas y 13 justificantes de dos trimestres, con todos los casos que un asesor quiere ver: válidos, descuadres de IVA, CIF con dígito de control erróneo, retención de IRPF del 15 % (art. 100 LIRPF), ilegibles y facturas simplificadas sin derecho a deducción.
-
-## Qué demuestra
-
-| Muestra incluida | Qué pone a prueba |
-| --- | --- |
-| `factura-completa.png` — Distribuciones Ferrallado, S.L. | Factura completa A4: NIFs de emisor y receptor, IVA 21 %, cuenta 600 del PGC. IVA deducible. |
-| `ticket-restaurante.png` — Bar El Cruce | Factura simplificada con IVA 10 % incluido: cálculo retroactivo de la base y detección de **IVA no deducible** (art. 97 LIVA) con aviso para pedir la factura completa. |
-| `factura-error.png` — Eléctricas del Sur, S.A. | Factura con **dos trampas**: cuota de IVA que no cuadra con la base (descuadre de 1,00 €) y **CIF con dígito de control erróneo**. El sistema marca `REQUIERE_REVISION` y explica ambos motivos. |
-| `ticket-gasolinera.png` — Estación de Servicio La Vía | Ticket de gasóleo con IVA 21 % incluido: desglose retroactivo (base 46,36 € + cuota 9,74 €), cuenta 629. |
-
-### Validación de NIF/CIF con VIES y autocompletado
-
-`GET /api/nif/lookup?nif=…` combina dos capas y alimenta el alta de empresas y gestorías:
-
-1. **Dígito de control determinístico** (TypeScript, sin red): NIF/NIE (letra módulo 23) y CIF (suma ponderada alternativa).
-2. **Censo VIES de la Comisión Europea** (REST, sin clave): si el NIF está registrado, devuelve razón social y domicilio para prerrellenar el alta.
-
-El servicio comunica honestamente los tres casos: registrado en VIES (datos cargados), válido pero no registrado (habitual en autónomos sin operaciones intracomunitarias) y dígito de control erróneo (bloquea el alta). Si el VIES no responde, el alta continúa: VIES enriquece, nunca filtra.
+> Del WhatsApp del cliente al asiento contable. Plataforma fiscal multi-tenant para gestorías y asesorías españolas: captura de justificantes (web o WhatsApp), extracción con IA, validación determinista según la AEAT (RD 1619/2012) y exportación del lote de asientos (CSV compatible con a3, Sage y Holded).
 
 ## Arquitectura
 
-- **Next.js 16 (App Router) + TypeScript + Tailwind + shadcn/ui**, tipografía editorial (Source Serif 4 + Geist) y paleta institucional navy/esmeralda
-- **Multi-tenant**: 1 gestoría → N empresas → N justificantes, con aislamiento por rol en cada endpoint
-- **Autenticación** con cookie httpOnly + sesiones en base de datos y contraseñas con scrypt (`src/lib/hash.ts`)
-- **Prisma + SQLite** en local; capa de datos aislada (`src/lib/store.ts`) que degrada a modo memoria en serverless
-- **Motor de visión GLM** vía `z-ai-web-dev-sdk` con un system prompt calibrado como auditor AEAT/PGC (`src/lib/fiscal.ts`)
-- **Doble validación server-side**, independiente de la IA:
-  - `src/lib/fiscal.ts` → matemática AEAT: base + cuota IVA − retención IRPF = total (±0,02 €) y coherencia cuota = base × tipo
-  - `src/lib/nif.ts` → validador determinístico de NIF/NIE/CIF (dígito de control en TypeScript)
-- **Imputación por fecha de devengo**: el trimestre fiscal (1T–4T) se deriva de la fecha de emisión del documento, no de la fecha de envío
+| Capa | Tecnología | Notas |
+| --- | --- | --- |
+| Aplicación | Next.js 16 (App Router), React 19, TypeScript, Tailwind 4 | Rutas de API en Node.js runtime |
+| Hosting | Vercel, región `fra1` (Frankfurt, UE) | Despliegue de preview y producción |
+| Base de datos | **Neon PostgreSQL** (región UE) | Pooler para runtime, conexión directa para migraciones |
+| ORM | Prisma 6 | Migraciones versionadas en `prisma/migrations` |
+| Motor de visión | Endpoint GLM (`ZAI_*`) | Timeout, reintentos y sin fallback silencioso en producción |
+| Canal WhatsApp | WhatsApp Cloud API (Meta) | Webhook con firma HMAC e idempotencia por `wamid` |
 
-```
-src/
-  app/
-    page.tsx                      # Enrutador de vistas: landing → auth → portal (según sesión)
-    api/auth/{login,registro,logout,session}/  # Autenticación con cookie httpOnly
-    api/gestorias/route.ts        # Listado público para el alta de empresas
-    api/nif/lookup/route.ts       # Dígito de control + censo VIES con autocompletado
-    api/empresas/route.ts         # Empresas de la gestoría (solo rol GESTOR)
-    api/documents/route.ts        # POST extracción IA (rol CLIENTE) · GET por rol · DELETE (GESTOR)
-    api/documents/export/route.ts # Lote de asientos CSV (a3/Sage/Holded, solo GESTOR)
-  lib/
-    auth.ts                       # Sesiones: cookies httpOnly + helpers de rol
-    hash.ts                       # scrypt para contraseñas
-    fiscal.ts                     # System prompt auditor AEAT/PGC + validación matemática
-    nif.ts                        # Validación determinística NIF/NIE/CIF
-    store.ts                      # Capa de datos multi-tenant: SQLite/Prisma o memoria
-    zai-server.ts                 # Motor de visión (SDK o fetch directo por env vars)
-    seed.ts                       # Cartera de demostración multi-tenant
-  components/
-    landing/                      # Landing institucional
-    auth/                         # Entrar / Crear cuenta con NIF lookup en vivo
-    fiscal/
-      gestor-portal.tsx           # Sidebar navy: resumen, empresas, bandeja, exportar
-      cliente-portal.tsx          # WhatsApp + historial del cliente
-      whatsapp-chat.tsx           # Canal WhatsApp con tarjeta fiscal
-prisma/schema.prisma              # Gestoria, Usuario, Empresa, Documento, Sesion
-scripts/gen_receipts.py           # Regenera las muestras PNG (Playwright)
-```
+### Principios de diseño
 
-## Puesta en marcha
+- **La IA extrae; el servidor decide.** Toda regla de validez vive en `src/lib/fiscal.ts`, es determinista y está cubierta por tests. La IA nunca puede rebajar un documento a válido ni escribir el mensaje que recibe el cliente.
+- **Dinero en `Decimal(14,2)`** en base de datos y en céntimos enteros en el cálculo. Nunca `Float`.
+- **Multi-tenant por construcción.** Cada consulta sobre documentos filtra por gestoría o por empresa. Un documento de otra gestoría responde 404.
+- **Borrado lógico y auditoría.** Un registro fiscal no se destruye: se marca como eliminado y queda en `AuditoriaEvento`.
+- **Sin estado en memoria.** Sesiones, límites de uso y datos viven en Postgres, así que cualquier instancia serverless ve lo mismo.
+
+## Seguridad implementada
+
+- Sesiones en base de datos con token aleatorio de 256 bits; en BD solo se guarda su hash SHA-256. Logout revoca la sesión.
+- Contraseñas con scrypt (parámetros explícitos, comparación en tiempo constante).
+- Respuestas de login genéricas y tiempo de respuesta uniforme para evitar enumeración de cuentas.
+- Límites de uso persistentes: login, registro, consulta de NIF, gestorías, subida de justificantes y extracciones IA diarias por empresa.
+- Protección CSRF por comprobación de `Origin` en métodos que cambian estado, además de cookies `SameSite=Lax`.
+- Validación de todas las entradas con `zod`. Los justificantes se identifican por firma binaria (no por extensión ni por el MIME que declara el cliente), con tamaño máximo de 3 MB.
+- Cabeceras de seguridad (HSTS, CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`).
+- Exportación CSV protegida contra inyección de fórmulas en Excel.
+- Webhook de WhatsApp: firma `X-Hub-Signature-256` obligatoria, respuesta 200 inmediata y procesamiento tras la respuesta. Un número desconocido no recibe respuesta, para no revelar qué números están registrados.
+- Alta de empresas con aprobación: una empresa nueva queda **pendiente** hasta que su gestoría la aprueba. Solo las empresas aprobadas pueden enviar justificantes.
+- Los errores internos no se devuelven al cliente; se registran como logs JSON sin datos personales.
+
+## Flujo de un justificante
+
+1. Llega por la web (simulador de WhatsApp) o por el webhook de WhatsApp.
+2. Se valida el tipo real del archivo y su tamaño.
+3. Deduplicación por hash SHA-256 de la imagen (no consume IA).
+4. Límite diario de extracciones por empresa.
+5. Extracción con el motor de visión, con esquema JSON validado.
+6. Validación determinista: cuotas por tipo de IVA (0, 4, 10, 21 %), cuadre de base + cuota − retención = total, CIF/NIF con dígito de control, destinatario frente a la empresa, fecha real y no futura, confianza mínima y posible duplicado por número de factura.
+7. Persistencia con líneas de IVA, auditoría y mensaje al cliente generado por el servidor.
+8. La gestoría revisa: aprueba, rechaza o corrige la cuenta PGC. Después exporta el lote.
+
+## Puesta en marcha local
+
+Requisitos: Node 22+, [Bun](https://bun.sh) y una base de datos PostgreSQL (un proyecto o rama de desarrollo en Neon).
 
 ```bash
-bun install          # ejecuta prisma generate (postinstall)
-cp .env.example .env # DATABASE_URL apunta a SQLite local
-bun run db:push      # crea la base de datos
-bun run dev          # http://localhost:3000
+bun install                      # ejecuta prisma generate
+cp .env.example .env             # rellene DATABASE_URL y DIRECT_URL
+bun run db:deploy                # aplica las migraciones
+SEED_DEMO=true bun run db:seed   # cartera de demostración (idempotente)
+bun run dev                      # http://localhost:3000
 ```
 
-La primera vez, la cartera de demostración (gestoría, empresas, usuarios y justificantes) se siembra automáticamente.
+Cuentas de demostración (solo con `SEED_DEMO=true`):
 
-### Variables de entorno
-
-| Variable | Obligatoria | Descripción |
+| Perfil | Email | Contraseña |
 | --- | --- | --- |
-| `DATABASE_URL` | No | SQLite en local. **Sin ella, la app arranca en modo memoria** (ideal para Vercel). |
-| `ZAI_BASE_URL`, `ZAI_API_KEY` | No | Motor de visión en serverless. En local el SDK lee su `.z-ai-config`. Opcionales: `ZAI_TOKEN`, `ZAI_CHAT_ID`, `ZAI_USER_ID`, `ZAI_MODEL`. |
+| Gestoría | `ana@gestoriaalboraya.es` | `demo1234` |
+| Cliente | `juan@tallerperez.es` | `demo1234` |
 
-## Despliegue en Vercel
+## Despliegue en Vercel con Neon
 
-El despliegue funciona sin configurar nada:
+### 1. Base de datos (Neon)
 
-- **Sin `DATABASE_URL`**: la capa de datos arranca en *modo memoria* con la cartera de demostración completa (el login funciona; los datos se reinician en cada arranque en frío). Conectar Supabase/Neon (PostgreSQL) solo requiere cambiar el provider de Prisma y la `DATABASE_URL` — la lógica fiscal y la UI no se tocan.
-- **Sin credenciales del motor IA**: la extracción de las muestras conocidas responde en *modo demostración* (respuesta preconfigurada, etiquetada como simulada en la interfaz). Sube las variables `ZAI_*` en el proyecto de Vercel para activar la extracción real.
+1. Cree un proyecto en Neon con región **AWS eu-central-1 (Frankfurt)**.
+2. Use ramas: `main` para producción y una rama por entorno de preview (Neon permite crear ramas desde la producción en segundos, con datos copiados).
+3. De cada rama copie dos cadenas:
+   - **Pooled** (host con `-pooler`) → `DATABASE_URL`, añadiendo `?sslmode=require&pgbouncer=true&connection_limit=1`.
+   - **Directa** (sin `-pooler`) → `DIRECT_URL`, con `?sslmode=require`.
 
-## Hoja de ruta
+### 2. Variables de entorno (Vercel → Settings → Environment Variables)
 
-- [x] **Validación NIF/CIF determinística** — dígito de control verificado en TypeScript antes de aprobar el documento.
-- [x] **Multi-tenant con autenticación** — 1 gestoría → N empresas, portales separados y aislamiento por rol. *Pendiente de producción: migrar a PostgreSQL (Supabase/Neon).*
-- [x] **Censo VIES** — consulta en vivo con autocompletado de razón social y domicilio.
-- [ ] **Conciliación bancaria** — GoCardless Bank Account Data: cruce del extracto real del banco español con los justificantes recibidos.
-- [ ] **VeriFactu (RD 1007/2023)** — seguimiento trimestral del calendario; las reglas AEAT ya aplicadas hoy.
-- [ ] **RGPD en producción** — contrato de Encargado del Tratamiento con cada gestoría (el hosting ya está en la UE).
+| Variable | Producción | Preview | Obligatoria |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | rama `main` (pooled) | rama de preview (pooled) | Sí |
+| `DIRECT_URL` | rama `main` (directa) | rama de preview (directa) | Sí (migraciones) |
+| `ZAI_BASE_URL`, `ZAI_API_KEY` | ✔ | ✔ | Sí, para extraer justificantes |
+| `DEMO_MODE` | `false` | opcional | No |
+| `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | ✔ | opcional | Solo para el canal WhatsApp |
+
+**No active `SEED_DEMO` ni `DEMO_MODE` en producción.** La aplicación falla al arrancar si falta `DATABASE_URL`; no hay modo memoria.
+
+### 3. Build y migraciones
+
+`vercel-build` ejecuta `prisma migrate deploy && next build`. Cada despliegue aplica las migraciones pendientes antes de publicar. Si una migración falla, el despliegue falla y la versión anterior sigue activa.
+
+Para una base nueva, siembre la demo una sola vez desde su máquina con la `DIRECT_URL` de la rama correspondiente. No la siembre en producción real.
+
+### 4. WhatsApp Cloud API
+
+1. En Meta for Developers cree una app de tipo Business con el producto WhatsApp.
+2. Configure el webhook en `https://SU-DOMINIO/api/whatsapp/webhook`, con el **verify token** igual a `WHATSAPP_VERIFY_TOKEN`. Suscríbase al campo `messages`.
+3. Copie el **App Secret** (`WHATSAPP_APP_SECRET`), un token permanente de system user (`WHATSAPP_ACCESS_TOKEN`) y el ID del número (`WHATSAPP_PHONE_NUMBER_ID`).
+4. Cada empresa debe tener su número en `Empresa.whatsapp` (formato E.164 sin «+»). Se rellena en el registro.
+
+Opcional: `WHATSAPP_API_VERSION` (por defecto `v21.0`). Verifique la versión vigente de la Graph API antes de desplegar.
+
+## Scripts
+
+| Comando | Qué hace |
+| --- | --- |
+| `bun run dev` | Servidor de desarrollo |
+| `bun run build` | Generar cliente Prisma y build de producción |
+| `bun run typecheck` | `tsc --noEmit` |
+| `bun run lint` | ESLint |
+| `bun run test` | Tests unitarios (Vitest): reglas fiscales, archivos, CSV, contraseñas, webhook, NIF |
+| `bun run db:migrate` | Crear una migración nueva en desarrollo |
+| `bun run db:deploy` | Aplicar migraciones (producción) |
+| `bun run db:seed` | Sembrar la demo (requiere `SEED_DEMO=true`) |
+
+El CI (`.github/workflows/ci.yml`) valida: lockfile congelado, esquema Prisma, que las migraciones coinciden con el esquema, typecheck, lint, tests y build.
+
+## Limitaciones conocidas
+
+Lo que este repositorio **no** resuelve todavía y conviene decidir antes de cobrar:
+
+- **Almacenamiento de los originales.** Hoy se guardan el hash, el tipo y el tamaño del justificante, no la imagen. Para evidencia fiscal la gestoría necesita verla: conviene un almacén privado en la UE (p. ej. Cloudflare R2 o Vercel Blob en modo privado) con URLs firmadas.
+- **Verificación de email** al registrarse. Hoy el email no se confirma.
+- **Derechos RGPD** (acceso, portabilidad y supresión). Falta un proceso de exportación y de supresión de datos.
+- **Prisma 6.** Prisma 7 existe y cambia la configuración y los adaptadores; la migración es un trabajo aparte.
+- **Conciliación bancaria** (GoCardless Bank Account Data) e **integraciones de exportación por API** (a3, Sage, Holded): siguen en la hoja de ruta.
+- **Reglas fiscales.** Las reglas están implementadas según la documentación de referencia, pero deben validarse con un asesor fiscal antes de producción, en especial la deducibilidad de facturas simplificadas (art. 97 LIVA) y los plazos de conservación.
+- **VeriFactu (RD 1007/2023).** Obliga al software que emite facturas. Este producto captura gastos, así que el impacto directo es menor; confirme las fechas vigentes con su asesor.
 
 ## Aviso
 
-Demo con **datos ficticios**. No constituye asesoramiento fiscal ni sustituye el criterio del profesional responsable, que deberá verificar cada asiento antes de presentar las autoliquidaciones ante la Agencia Tributaria. Las validaciones implementan reglas generales (RD 1619/2012, LIVA, LIRPF, PGC).
+Datos de demostración ficticios en la cartera sembrada. Esta herramienta no constituye asesoramiento fiscal ni sustituye el criterio del profesional responsable, que debe verificar cada asiento antes de presentar las autoliquidaciones ante la Agencia Tributaria.

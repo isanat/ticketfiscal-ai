@@ -9,8 +9,10 @@ export interface UsuarioSesion {
   email: string;
   rol: Rol;
   gestoria?: { id: string; nombre: string };
-  empresa?: { id: string; nombre: string; nif: string; ciudad?: string | null };
+  empresa?: { id: string; nombre: string; nif: string; ciudad?: string | null; estado: EstadoEmpresa };
 }
+
+export type EstadoEmpresa = "PENDIENTE" | "APROBADA" | "RECHAZADA";
 
 export interface Empresa {
   id: string;
@@ -20,6 +22,7 @@ export interface Empresa {
   ciudad: string | null;
   whatsapp: string | null;
   gestoriaId: string | null;
+  estado: EstadoEmpresa;
   createdAt: string;
 }
 
@@ -28,6 +31,16 @@ export interface EmpresaResumen extends Empresa {
   pendientes: number;
   ivaDeducible: number;
   ultimoDocumento: string | null;
+}
+
+export type RevisionDocumento = "PENDIENTE" | "APROBADO" | "RECHAZADO";
+
+/** Desglose de IVA por tipo. Un documento puede tener varios (10 % y 21 %). */
+export interface LineaImpuesto {
+  orden: number;
+  baseImponible: number;
+  porcentajeIva: number;
+  cuotaIva: number;
 }
 
 export interface Documento {
@@ -57,6 +70,10 @@ export interface Documento {
   mensajeWhatsapp: string | null;
   imagenNombre: string | null;
   trimestre: string | null;
+  desglose: LineaImpuesto[];
+  revision: RevisionDocumento;
+  revisadoEn: string | null;
+  origen: "WEB" | "WHATSAPP";
   createdAt: string;
 }
 
