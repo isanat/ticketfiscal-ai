@@ -23,6 +23,13 @@ export default function Home() {
   const [refresco, setRefresco] = useState(0);
   const [tab, setTab] = useState("whatsapp");
 
+  // Al cambiar de pestaña, subir al inicio para que la cabecera fija
+  // no tape los contenidos cuando el usuario venía de una sección inferior.
+  function cambiarTab(valor: string) {
+    setTab(valor);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
       {/* Cabecera */}
@@ -57,7 +64,7 @@ export default function Home() {
 
       {/* Contenido */}
       <main className="flex-1 px-4 py-6">
-        <Tabs value={tab} onValueChange={setTab} className="w-full">
+        <Tabs value={tab} onValueChange={cambiarTab} className="w-full">
           <div className="mb-5 flex justify-center">
             <TabsList className="h-auto w-full max-w-full flex-wrap gap-1 rounded-xl p-1 sm:h-11 sm:w-fit">
               <TabsTrigger
