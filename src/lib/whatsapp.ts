@@ -119,18 +119,22 @@ export async function descargarAdjunto(mediaId: string, maxBytes: number): Promi
 export async function enviarTexto(numero: string, texto: string): Promise<boolean> {
   const c = config();
   if (!c.WHATSAPP_PHONE_NUMBER_ID || !c.WHATSAPP_ACCESS_TOKEN) return false;
-  const res = await fetch(`${GRAPH}/${version()}/${c.WHATSAPP_PHONE_NUMBER_ID}/messages`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${c.WHATSAPP_ACCESS_TOKEN}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ messaging_product: "whatsapp", to: numero, type: "text", text: { body: texto.slice(0, 4000) } }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  if (!res.ok) {
+  // 131030 = destinatario fuera de la lista permitida. En Brasil el número puede estar registrado con o sin
+  // el «9» respecto a como WhatsApp entrega el remitente: se prueban las dos formas.
+  for (const destino of variantesNumero(numero)) {
+    const res = await fetch(`${GRAPH}/${version()}/${c.WHATSAPP_PHONE_NUMBER_ID}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${c.WHATSAPP_ACCESS_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ messaging_product: "whatsapp", to: destino, type: "text", text: { body: texto.slice(0, 4000) } }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (res.ok) return true;
     // Solo código y tipo del error de Meta (sin mensaje, que puede incluir datos del usuario).
     const e = ((await res.json().catch(() => ({}))) as { error?: { code?: number; type?: string; error_subcode?: number } }).error;
     log("warn", "whatsapp.envio_fallido", { status: res.status, codigo: e?.code, subcodigo: e?.error_subcode, tipo: e?.type });
+    if (e?.code !== 131030) return false; // otro error: reintentar con otra forma del número no ayuda
   }
-  return res.ok;
+  return false;
 }
 
 /**
