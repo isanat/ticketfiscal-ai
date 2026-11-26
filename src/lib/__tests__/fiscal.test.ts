@@ -202,3 +202,11 @@ describe("fechas y trimestres", () => {
     expect(trimestreDe(null)).toBeNull();
   });
 });
+
+describe("mensajeWhatsapp: sin puntos duplicados", () => {
+  it("no duplica el punto final del motivo", async () => {
+    const { mensajeWhatsapp } = await import("../fiscal");
+    const m = mensajeWhatsapp({ estado: "REQUIERE_REVISION", tipoDocumento: "FACTURA_SIMPLIFICADA", ivaDeducible: false, emisorNombre: null, numeroFactura: null, totalFactura: 1, motivos: ["Tipo de IVA del 18 % no reconocido (válidos: 0, 4, 10 y 21 %)."] });
+    expect(m).toBe("Recibido, pero necesita revisión: Tipo de IVA del 18 % no reconocido (válidos: 0, 4, 10 y 21 %). Su gestoría lo revisará.");
+  });
+});

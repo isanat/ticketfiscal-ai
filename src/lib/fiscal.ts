@@ -230,7 +230,7 @@ export function mensajeWhatsapp(r: Pick<ResultadoFiscal, "estado" | "tipoDocumen
     return "No he podido leer el justificante. Envíe una foto más nítida, completa y bien iluminada.";
   }
   if (r.estado === "REQUIERE_REVISION") {
-    return `Recibido, pero necesita revisión: ${r.motivos[0] ?? "datos inconsistentes"}. Su gestoría lo revisará.`;
+    return `Recibido, pero necesita revisión: ${(r.motivos[0] ?? "datos inconsistentes").replace(/[.\s]+$/, "")}. Su gestoría lo revisará.`;
   }
   const iva = r.ivaDeducible ? "IVA deducible" : "IVA no deducible";
   const ref = r.numeroFactura ? ` ${r.numeroFactura}` : "";
