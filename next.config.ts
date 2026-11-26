@@ -25,6 +25,10 @@ const cabecerasSeguridad = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Las muestras de evaluación se leen con fs en el endpoint temporal: deben empaquetarse.
+  outputFileTracingIncludes: {
+    "/api/admin/evaluar-vision": ["./public/samples/*"],
+  },
   async headers() {
     return [{ source: "/:path*", headers: cabecerasSeguridad }];
   },
