@@ -24,7 +24,7 @@ Conviene ser preciso: leer un ticket con IA ya lo hacen otras herramientas. Lo d
 | Elemento | Por qué importa | Estado |
 |---|---|---|
 | **IA que lee + reglas que deciden** | Los modelos de visión fallan sin avisar; la validez fiscal no puede depender de ellos. Con reglas explicables cada aviso cita su causa y es auditable | Implementado y probado |
-| **Conciliación justificante ↔ movimiento bancario** | Detecta gasto sin factura antes del cierre; convierte «perseguir tickets» en una lista concreta | Implementado con CSV/Norma 43; Open Banking pendiente |
+| **Conciliación justificante ↔ movimiento bancario** | Detecta gasto sin factura antes del cierre; convierte «perseguir tickets» en una lista concreta | Implementado con importación de extractos CSV/Norma 43 (sin conexión bancaria automática) |
 | **Persona en el bucle + trazabilidad** | Auditoría de cada cambio, borrado lógico, duplicados por huella: un registro fiscal no se destruye | Implementado |
 | **Canal del cliente = WhatsApp** | Cero fricción de adopción para el cliente final | Implementado; **sin credenciales de Meta no se ha ejecutado de extremo a extremo** |
 
@@ -47,7 +47,7 @@ Las condiciones siguientes proceden de guías de terceros ([Intelectium](https:/
 1. **Sin tracción**: ningún cliente ni piloto. ENISA valora equipo, mercado y evidencia de demanda.
 2. **Sin plan financiero** (precios, costes de IA por documento, margen) ni fondos propios definidos.
 3. **Riesgo regulatorio** sin cerrar: RGPD y subencargados de IA (ver `ESTADO_Y_LAGUNAS.md`).
-4. **Dependencia de proveedores externos** (IA, WhatsApp, Open Banking) sin plan de contingencia más allá del proveedor intercambiable.
+4. **Dependencia de proveedores externos** (IA y WhatsApp) sin plan de contingencia más allá del proveedor intercambiable.
 
 ## 6. Plan de 90 días para ser financiable y vendible
 
@@ -73,4 +73,4 @@ Las condiciones siguientes proceden de guías de terceros ([Intelectium](https:/
 - «Los datos no salen de la UE»: la base de datos sí está en Frankfurt, el procesamiento de IA no se garantiza allí.
 - «Preparado para VeriFactu»: el producto no emite facturas.
 - Cifras de ahorro o precisión general: solo las medidas en pilotos con datos reales.
-- «Conexión bancaria automática»: hoy solo hay importación de extractos.
+- «Conexión bancaria automática»: no existe ni está prevista; solo importación de extractos.

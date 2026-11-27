@@ -38,7 +38,7 @@
 2. **Control aritmético del IVA.** Base + cuota − retención = total, con tolerancia de 0,02 €, tipos 21/10/4/0 % e identificación de facturas simplificadas con comprobación de su deducibilidad conforme al art. 97 LIVA.
 3. **Multi-empresa de verdad.** Una gestoría, N empresas y N números de WhatsApp autorizados, con aislamiento de datos por empresa y cierre por trimestre.
 4. **Exportación a a3, Sage y Holded.** Lote de asientos listo para importar, con la cuenta del PGC propuesta (600, 621–629) y contrapartidas 472 y 4751. Sin hojas de cálculo intermedias.
-5. **Conciliación bancaria (en desarrollo).** Remesas de extractos por PSD2 (GoCardless) para casar justificante y pago antes de cerrar cada trimestre.
+5. **Conciliación con el extracto.** El gestor o el cliente sube el extracto (CSV o Norma 43) y el sistema casa justificante y pago antes de cerrar cada trimestre. No hay conexión bancaria automática (fuera del alcance).
 6. **VeriFactu.** Hoja de ruta alineada con el RD 1007/2023 y la Orden HAC/1177/2024: facturación con trazabilidad, encadenamiento y firma para los clientes del despacho.
 
 ### Seguridad y protección de datos

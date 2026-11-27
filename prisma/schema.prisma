@@ -132,7 +132,6 @@ model Empresa {
   createdAt               DateTime                @default(now())
   motivoSuspension        String?
   movimientos             MovimientoBancario[]
-  conexionesBanco         ConexionBancaria[]
   solicitudes             SolicitudJustificante[]
   /// Último mensaje recibido por WhatsApp: abre la ventana de 24 h para responder con texto libre.
   ultimoMensajeWhatsappEn DateTime?
@@ -305,6 +304,7 @@ model UsoVision {
 enum OrigenMovimiento {
   CSV
   N43
+  /// Reservado: no se usa. Postgres no permite quitar valores de un enum sin recrearlo.
   OPEN_BANKING
 }
 
@@ -312,7 +312,7 @@ enum EstadoConciliacion {
   CONFIRMADA
 }
 
-/// Movimiento del extracto bancario de una empresa (importado o leído por Open Banking).
+/// Movimiento del extracto bancario de una empresa (importado desde un extracto CSV o Norma 43).
 model MovimientoBancario {
   id             String                 @id @default(cuid())
   empresaId      String
@@ -345,22 +345,6 @@ model Conciliacion {
   motivos       Json
   decididoPorId String?
   createdAt     DateTime           @default(now())
-}
-
-/// Conexión con un banco vía proveedor de Open Banking (preparada; requiere credenciales del proveedor).
-model ConexionBancaria {
-  id                String    @id @default(cuid())
-  empresaId         String
-  empresa           Empresa   @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  proveedor         String
-  /// Referencia del proveedor (p. ej. id de la «requisition» de GoCardless).
-  referenciaExterna String
-  institucion       String
-  estado            String    @default("PENDIENTE")
-  expiraEn          DateTime?
-  createdAt         DateTime  @default(now())
-
-  @@index([empresaId])
 }
 
 enum EstadoSolicitud {

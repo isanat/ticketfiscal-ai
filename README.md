@@ -125,7 +125,7 @@ Lo que este repositorio **no** resuelve todavía y conviene decidir antes de cob
 - **Verificación de email** al registrarse. Hoy el email no se confirma.
 - **Derechos RGPD** (acceso, portabilidad y supresión). Falta un proceso de exportación y de supresión de datos.
 - **Prisma 6.** Prisma 7 existe y cambia la configuración y los adaptadores; la migración es un trabajo aparte.
-- **Conciliación bancaria** (GoCardless Bank Account Data) e **integraciones de exportación por API** (a3, Sage, Holded): siguen en la hoja de ruta.
+- **Conciliación bancaria**: se hace importando el extracto (CSV o Norma 43). La conexión bancaria automática (Open Banking) **está fuera del alcance**: los proveedores consultados han cerrado altas nuevas o tienen un coste alto. **Integraciones de exportación por API** (a3, Sage, Holded): siguen en la hoja de ruta.
 - **Reglas fiscales.** Las reglas están implementadas según la documentación de referencia, pero deben validarse con un asesor fiscal antes de producción, en especial la deducibilidad de facturas simplificadas (art. 97 LIVA) y los plazos de conservación.
 - **VeriFactu (RD 1007/2023).** Obliga al software que emite facturas. Este producto captura gastos, así que el impacto directo es menor; confirme las fechas vigentes con su asesor.
 

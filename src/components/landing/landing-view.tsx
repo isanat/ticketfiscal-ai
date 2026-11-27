@@ -109,10 +109,9 @@ const CARACTERISTICAS: {
   },
   {
     icono: Landmark,
-    titulo: "Conciliación bancaria",
+    titulo: "Conciliación con el extracto",
     descripcion:
-      "Importación de extractos CSV y Norma 43, con coincidencias explicadas. La conexión bancaria automática (Open Banking) está en preparación.",
-    insignia: "Disponible",
+      "Suba el extracto del banco (CSV o Norma 43) y el sistema propone qué cargo corresponde a qué justificante, explicando el porqué. Los cargos sin justificante se reclaman al cliente por WhatsApp.",
   },
   {
     icono: Building2,

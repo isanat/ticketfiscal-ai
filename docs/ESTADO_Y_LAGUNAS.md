@@ -20,11 +20,12 @@ Cada punto indica si está **hecho y verificado**, **hecho sin verificar contra 
 
 1. **Norma 43.** El lector se probó con datos sintéticos. Falta un extracto real de un banco español (cada entidad tiene variantes).
 2. **WhatsApp Cloud API (Meta).** Webhook, firma y respuestas implementados; no hay credenciales de Meta cargadas, así que nunca se ha ejecutado de extremo a extremo.
-3. **Open Banking (GoCardless).** Adaptador preparado y probado con cargas de ejemplo, **pero según fuentes secundarias GoCardless ha cerrado las altas nuevas de Bank Account Data** ([DEV Community](https://dev.to/johnfrandsen/gocardless-bank-account-data-alternatives-what-to-use-when-signups-are-disabled-326d), [foro de Invoice Ninja](https://forum.invoiceninja.com/t/gocardless-nordigen-service-no-longer-available-alternative-needed/22576)). Hay que confirmarlo en su panel. Si es así, hay que elegir otro agregador PSD2 con cobertura española contrastada; el contrato `ProveedorBancario` está pensado para sustituirlo.
-4. **Calidad de extracción con fotos reales.** Las muestras eran limpias. Los tickets reales (arrugados, torcidos, térmicos descoloridos) darán peor resultado; hay que medirlo con un conjunto de, al menos, 100–200 tickets reales etiquetados.
-5. **Anthropic.** La clave carece de crédito; el proveedor está implementado y probado con respuestas simuladas, no con llamadas reales.
+3. **Calidad de extracción con fotos reales.** Las muestras eran limpias. Los tickets reales (arrugados, torcidos, térmicos descoloridos) darán peor resultado; hay que medirlo con un conjunto de, al menos, 100–200 tickets reales etiquetados.
+4. **Anthropic.** La clave carece de crédito; el proveedor está implementado y probado con respuestas simuladas, no con llamadas reales.
 
 ## 3. Lagunas pendientes
+
+> **Fuera del alcance (decisión del dueño, 27-11-2026):** la conexión bancaria automática (Open Banking). GoCardless cerró las altas nuevas y las alternativas tienen un coste elevado. La conciliación se hace importando el extracto (CSV o Norma 43).
 
 ### 3.1 Cumplimiento y legal (bloqueantes para lanzar con clientes reales)
 - **Contrato de encargo del tratamiento (art. 28 RGPD)** y políticas de privacidad, cookies y condiciones de uso: **no existen**. Debe redactarlos un abogado.
@@ -66,4 +67,3 @@ Cada punto indica si está **hecho y verificado**, **hecho sin verificar contra 
 3. Piloto con 2–3 gestorías reales: medir extracción con fotos reales, probar importación en su software y la conciliación con su banco (Norma 43 real).
 4. Alertas, copias de seguridad y recuperación del administrador.
 5. Cobro.
-6. Open Banking, con proveedor alternativo si GoCardless confirma el cierre.

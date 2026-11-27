@@ -20,7 +20,7 @@ Revisión del 27-11-2026. Separa lo **verificado**, lo **no verificado** y lo qu
 2. **Cero tracción**: ningún piloto ni cliente.
 3. **Integración con ERP solo por CSV**: no hay API directa con a3, Holded o Sage.
 4. **Un solo canal y un solo país**: WhatsApp y España.
-5. **Open Banking inexistente**: solo importación de extractos; GoCardless parece cerrada a altas nuevas.
+5. **Sin conexión bancaria automática (fuera del alcance)**: solo importación de extractos. GoCardless cerró las altas nuevas y las alternativas cuestan demasiado. Por eso la **facilidad de la importación** es una prioridad de producto.
 6. **Precisión medida sobre 4 imágenes sintéticas y 3 reales.** No hay benchmark creíble.
 
 ## 3. Dónde podemos ser mejores (el foso)
@@ -63,11 +63,11 @@ API/exportación nativa a Holded y a3 (y Sage) en vez de CSV. Reduce fricción e
 | 5 | Cabina de cierre trimestral (303/347) | M | — |
 | 6 | Integraciones nativas (Holded, a3) | M–L | Acceso a sus APIs |
 | 7 | Decisión de digitalización certificada (alianza u homologación) | L | Asesoría legal |
-| 8 | Open Banking con proveedor alternativo | M | Elegir proveedor con cobertura ES |
+| 8 | Importación de extractos más fácil (varios archivos, vista previa, más formatos, guía de descarga) | S–M | — |
 
 ## 6. Qué cambia en el mensaje comercial
 
-Frase defendible hoy: *«La IA lee; las reglas deciden; el banco confirma.»* Lo que **no** se puede decir todavía: «homologado», «sustituye al papel», «conexión bancaria automática», «precisión del X %».
+Frase defendible hoy: *«La IA lee; las reglas deciden; el banco confirma.»* Lo que **no** se puede decir todavía: «homologado», «sustituye al papel», «conexión bancaria automática» (fuera del alcance), «precisión del X %».
 
 ## 7. Pendiente de verificar antes de usar esto en una solicitud
 
