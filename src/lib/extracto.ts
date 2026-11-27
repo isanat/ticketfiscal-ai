@@ -98,6 +98,12 @@ function dividir(linea: string, sep: string): string[] {
   return celdas.map((c) => c.trim());
 }
 
+/** Norma 43 empieza por un registro «11» (cabecera de cuenta) de 80 posiciones numéricas; todo lo demás se trata como CSV. */
+export function detectarFormatoExtracto(contenido: string): "csv" | "n43" {
+  const primera = contenido.replace(/^\uFEFF/, "").split(/\r?\n/).find((l) => l.trim().length > 0) ?? "";
+  return /^11\d{18}/.test(primera) ? "n43" : "csv";
+}
+
 const sinTildes = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 const ALIAS = {
   fecha: ["fecha operacion", "fecha de operacion", "f. operacion", "fecha", "f.operacion", "fecha contable", "date"],
@@ -118,11 +124,13 @@ export function parseCsvBanco(texto: string): ResultadoLectura {
   const sep = [";", "\t", ","].map((s) => [s, cab.split(s).length] as const).sort((a, b) => b[1] - a[1])[0][0];
   const cols = dividir(cab, sep).map(sinTildes);
   const col = (nombres: string[]) => cols.findIndex((c) => nombres.includes(c));
-  const iFecha = col(ALIAS.fecha);
-  const iDesc = col(ALIAS.concepto);
-  const iImp = col(ALIAS.importe);
-  const iDebe = col(ALIAS.debe);
-  const iHaber = col(ALIAS.haber);
+  // Si el título no coincide exactamente (p. ej. «Fecha de operación (dd/mm/aaaa)») se busca por contenido.
+  const parcial = (...trozos: string[]) => cols.findIndex((c) => trozos.some((t) => c.includes(t)) && !c.includes("saldo"));
+  const iFecha = col(ALIAS.fecha) > -1 ? col(ALIAS.fecha) : parcial("operacion") > -1 ? parcial("operacion") : parcial("fecha");
+  const iDesc = col(ALIAS.concepto) > -1 ? col(ALIAS.concepto) : parcial("concepto", "descripcion");
+  const iImp = col(ALIAS.importe) > -1 ? col(ALIAS.importe) : parcial("importe");
+  const iDebe = col(ALIAS.debe) > -1 ? col(ALIAS.debe) : iImp > -1 ? -1 : parcial("debe", "cargo");
+  const iHaber = col(ALIAS.haber) > -1 ? col(ALIAS.haber) : iImp > -1 ? -1 : parcial("haber", "abono");
   if (iFecha === -1 || (iImp === -1 && iDebe === -1 && iHaber === -1)) return { movimientos: [], ignoradas: lineas.length - 1 };
 
   const items: Array<Omit<MovimientoLeido, "idExterno">> = [];

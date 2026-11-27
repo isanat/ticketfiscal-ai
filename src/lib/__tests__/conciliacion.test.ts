@@ -130,3 +130,22 @@ describe("lectura de extractos", () => {
     expect(r.movimientos[1]).toMatchObject({ fecha: "2026-03-15", importeCent: 50000 });
   });
 });
+
+describe("extractos: detección de formato y columnas tolerantes", () => {
+  it("detecta Norma 43 y CSV por el contenido", async () => {
+    const { detectarFormatoExtracto } = await import("../extracto");
+    expect(detectarFormatoExtracto("﻿" + "11" + "0".repeat(60))).toBe("n43");
+    expect(detectarFormatoExtracto("Fecha;Concepto;Importe\n01/01/2026;X;-1,00")).toBe("csv");
+    expect(detectarFormatoExtracto("")).toBe("csv");
+  });
+  it("entiende títulos de columna largos y las columnas Cargo/Abono", async () => {
+    const { parseCsvBanco } = await import("../extracto");
+    const r = parseCsvBanco("Titular;Cuenta\nAna;ES00\n\nFecha de operación (dd/mm/aaaa);Fecha valor;Concepto del movimiento;Cargo;Abono;Saldo\n05/03/2026;05/03/2026;PAGO TARJETA SUPER;12,40;;900,00\n06/03/2026;06/03/2026;INGRESO;;100,00;1.000,00");
+    expect(r.movimientos.map((m) => [m.fecha, m.importeCent])).toEqual([["2026-03-05", -1240], ["2026-03-06", 10000]]);
+  });
+  it("no confunde el saldo con el importe", async () => {
+    const { parseCsvBanco } = await import("../extracto");
+    const r = parseCsvBanco("Fecha;Concepto;Saldo;Importe\n01/02/2026;X;500,00;-20,00");
+    expect(r.movimientos[0].importeCent).toBe(-2000);
+  });
+});

@@ -1,7 +1,7 @@
 // Conciliación sobre la base de datos: importación de extractos, vista de coincidencias y confirmación.
 import { Prisma } from "@prisma/client";
 import { conciliar, puntuar, type DocumentoConciliable, type Movimiento } from "./conciliacion";
-import { parseCsvBanco, parseNorma43 } from "./extracto";
+import { detectarFormatoExtracto, parseCsvBanco, parseNorma43 } from "./extracto";
 import { aCentimos, aEuros } from "./money";
 import { prisma } from "./prisma";
 import { esReclamable, resolverPorConciliacion, solicitudesDe } from "./reclamaciones";
@@ -25,9 +25,61 @@ export async function empresaAccesible(sesion: SesionActiva, empresaId: string |
   return null;
 }
 
-export async function importarExtracto(empresaId: string, formato: FormatoExtracto, contenido: string, usuarioId: string) {
-  const lectura = formato === "n43" ? parseNorma43(contenido) : parseCsvBanco(contenido);
-  if (lectura.movimientos.length === 0) return { importados: 0, duplicados: 0, ignoradas: lectura.ignoradas };
+function leer(formato: FormatoExtracto | "auto", contenido: string) {
+  const f = formato === "auto" ? detectarFormatoExtracto(contenido) : formato;
+  return { formato: f, lectura: f === "n43" ? parseNorma43(contenido) : parseCsvBanco(contenido) };
+}
+
+export interface VistaPreviaExtracto {
+  formato: FormatoExtracto;
+  total: number;
+  nuevos: number;
+  duplicados: number;
+  ignoradas: number;
+  cargos: number;
+  abonos: number;
+  /** Suma de cargos y de abonos en euros (valor absoluto). */
+  importeCargos: number;
+  importeAbonos: number;
+  desde: string | null;
+  hasta: string | null;
+  ejemplos: Array<{ fecha: string; descripcion: string; importe: number }>;
+  avisos: string[];
+}
+
+/** Lee el archivo sin guardar nada: el usuario ve qué se importaría antes de confirmar. */
+export async function previsualizarExtracto(empresaId: string, formato: FormatoExtracto | "auto", contenido: string): Promise<VistaPreviaExtracto> {
+  const { formato: f, lectura } = leer(formato, contenido);
+  const movs = lectura.movimientos;
+  const existentes = movs.length
+    ? new Set((await prisma.movimientoBancario.findMany({ where: { empresaId, idExterno: { in: movs.map((m) => m.idExterno) } }, select: { idExterno: true } })).map((x) => x.idExterno))
+    : new Set<string>();
+  const cargos = movs.filter((m) => m.importeCent < 0);
+  const abonos = movs.filter((m) => m.importeCent > 0);
+  const fechas = movs.map((m) => m.fecha).sort();
+  const avisos: string[] = [];
+  if (movs.length >= 5 && cargos.length === 0) avisos.push("No hay ningún cargo (importe negativo). Si su banco muestra los gastos en positivo o en otra columna, revise el archivo.");
+  if (lectura.ignoradas > 0) avisos.push(`${lectura.ignoradas} línea(s) no se pudieron interpretar y se ignorarán.`);
+  return {
+    formato: f,
+    total: movs.length,
+    nuevos: movs.length - existentes.size,
+    duplicados: existentes.size,
+    ignoradas: lectura.ignoradas,
+    cargos: cargos.length,
+    abonos: abonos.length,
+    importeCargos: aEuros(cargos.reduce((s, m) => s + Math.abs(m.importeCent), 0)),
+    importeAbonos: aEuros(abonos.reduce((s, m) => s + m.importeCent, 0)),
+    desde: fechas[0] ?? null,
+    hasta: fechas[fechas.length - 1] ?? null,
+    ejemplos: movs.slice(0, 3).map((m) => ({ fecha: m.fecha, descripcion: m.descripcion, importe: aEuros(m.importeCent) })),
+    avisos,
+  };
+}
+
+export async function importarExtracto(empresaId: string, formato: FormatoExtracto | "auto", contenido: string, usuarioId: string) {
+  const { formato: f, lectura } = leer(formato, contenido);
+  if (lectura.movimientos.length === 0) return { importados: 0, duplicados: 0, ignoradas: lectura.ignoradas, formato: f };
   const r = await prisma.movimientoBancario.createMany({
     data: lectura.movimientos.map((m) => ({
       empresaId,
@@ -35,12 +87,12 @@ export async function importarExtracto(empresaId: string, formato: FormatoExtrac
       fecha: new Date(`${m.fecha}T00:00:00Z`),
       importe: aEuros(m.importeCent),
       descripcion: m.descripcion,
-      origen: formato === "n43" ? ("N43" as const) : ("CSV" as const),
+      origen: f === "n43" ? ("N43" as const) : ("CSV" as const),
       importadoPorId: usuarioId,
     })),
     skipDuplicates: true,
   });
-  return { importados: r.count, duplicados: lectura.movimientos.length - r.count, ignoradas: lectura.ignoradas };
+  return { importados: r.count, duplicados: lectura.movimientos.length - r.count, ignoradas: lectura.ignoradas, formato: f };
 }
 
 function ventanaTrimestre(trimestre: string | undefined): { desde: Date; hasta: Date } | null {

@@ -2,13 +2,14 @@
 
 // Conciliación bancaria: cruza el extracto del banco con los justificantes recibidos.
 // El motor sugiere y explica cada coincidencia; la gestoría confirma. Nada se concilia solo.
-import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, FileUp, Link2Off, Loader2, ReceiptText, Send, Wallet } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { CheckCircle2, Link2Off, Loader2, ReceiptText, Send, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ImportadorExtractos } from "@/components/fiscal/importador-extractos";
 import { toast } from "@/hooks/use-toast";
 import { eur, fechaEs } from "@/lib/format";
 import type { EmpresaResumen } from "@/lib/types";
@@ -64,20 +65,7 @@ interface Vista {
   };
 }
 
-const MAX_BYTES = 2_000_000;
 const fecha = fechaEs;
-
-/** Los extractos de banco (sobre todo Norma 43) suelen venir en ISO-8859-1. */
-async function leerArchivo(f: File): Promise<string> {
-  const buf = await f.arrayBuffer();
-  const utf8 = new TextDecoder("utf-8").decode(buf);
-  return utf8.includes("�") ? new TextDecoder("iso-8859-1").decode(buf) : utf8;
-}
-
-function detectarFormato(nombre: string, contenido: string): "csv" | "n43" {
-  if (/\.(n43|c43|txt)$/i.test(nombre) && /^11\d{18}/.test(contenido.trimStart())) return "n43";
-  return /^11\d{18}/.test(contenido.trimStart()) ? "n43" : "csv";
-}
 
 function trimestresRecientes(): string[] {
   const hoy = new Date();
@@ -114,9 +102,7 @@ export function ConciliacionView({
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
   const [version, setVersion] = useState(0);
-  const [importando, setImportando] = useState(false);
   const [ocupado, setOcupado] = useState<string | null>(null);
-  const input = useRef<HTMLInputElement>(null);
 
   const refrescar = useCallback(() => setVersion((v) => v + 1), []);
 
@@ -144,35 +130,6 @@ export function ConciliacionView({
       activo = false;
     };
   }, [empresaId, trimestre, version, esCliente]);
-
-  async function importar(f: File) {
-    if (f.size > MAX_BYTES) {
-      toast({ title: "Archivo demasiado grande", description: "El máximo es 2 MB por extracto.", variant: "destructive" });
-      return;
-    }
-    setImportando(true);
-    try {
-      const contenido = await leerArchivo(f);
-      const res = await fetch("/api/conciliacion/importar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ empresaId: empresaId || undefined, formato: detectarFormato(f.name, contenido), contenido }),
-      });
-      const js = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast({ title: "No se pudo importar", description: js.error ?? "Revise el formato del archivo.", variant: "destructive" });
-        return;
-      }
-      toast({
-        title: "Extracto importado",
-        description: `${js.importados} movimientos nuevos${js.duplicados ? `, ${js.duplicados} ya existían` : ""}${js.ignoradas ? `, ${js.ignoradas} líneas ignoradas` : ""}.`,
-      });
-      refrescar();
-    } finally {
-      setImportando(false);
-      if (input.current) input.current.value = "";
-    }
-  }
 
   async function confirmar(m: Mov, d: Doc) {
     setOcupado(m.id);
@@ -263,7 +220,7 @@ export function ConciliacionView({
             <Wallet className="h-4 w-4 text-primary" /> Cruce del extracto con los justificantes
           </CardTitle>
           <CardDescription>
-            Importe el extracto del banco (CSV o Norma 43). El sistema propone qué cargo corresponde a qué justificante y explica por qué; usted
+            Suba el extracto del banco (CSV o Norma 43). El sistema propone qué cargo corresponde a qué justificante y explica por qué; usted
             confirma. Reimportar el mismo extracto no duplica movimientos.
           </CardDescription>
         </CardHeader>
@@ -295,18 +252,7 @@ export function ConciliacionView({
               ))}
             </SelectContent>
           </Select>
-          <input
-            ref={input}
-            type="file"
-            accept=".csv,.txt,.n43,.c43,text/csv,text/plain"
-            className="sr-only"
-            aria-label="Archivo de extracto"
-            onChange={(e) => e.target.files?.[0] && void importar(e.target.files[0])}
-          />
-          <Button size="sm" className="h-9" disabled={importando} onClick={() => input.current?.click()}>
-            {importando ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <FileUp className="mr-1.5 h-3.5 w-3.5" />}
-            Importar extracto
-          </Button>
+          <ImportadorExtractos empresaId={empresaId} onImportado={refrescar} />
         </CardContent>
       </Card>
 
