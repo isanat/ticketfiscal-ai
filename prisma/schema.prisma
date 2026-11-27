@@ -117,22 +117,25 @@ model Sesion {
 }
 
 model Empresa {
-  id               String               @id @default(cuid())
-  nombre           String
-  nif              String               @unique
-  direccion        String?
-  ciudad           String?
+  id                      String                  @id @default(cuid())
+  nombre                  String
+  nif                     String                  @unique
+  direccion               String?
+  ciudad                  String?
   /// Número en formato E.164 sin "+" (p. ej. 34600111222). Identifica el canal WhatsApp.
-  whatsapp         String?              @unique
-  estado           EstadoEmpresa        @default(PENDIENTE)
-  gestoriaId       String?
-  gestoria         Gestoria?            @relation(fields: [gestoriaId], references: [id])
-  usuarios         Usuario[]
-  documentos       Documento[]
-  createdAt        DateTime             @default(now())
-  motivoSuspension String?
-  movimientos      MovimientoBancario[]
-  conexionesBanco  ConexionBancaria[]
+  whatsapp                String?                 @unique
+  estado                  EstadoEmpresa           @default(PENDIENTE)
+  gestoriaId              String?
+  gestoria                Gestoria?               @relation(fields: [gestoriaId], references: [id])
+  usuarios                Usuario[]
+  documentos              Documento[]
+  createdAt               DateTime                @default(now())
+  motivoSuspension        String?
+  movimientos             MovimientoBancario[]
+  conexionesBanco         ConexionBancaria[]
+  solicitudes             SolicitudJustificante[]
+  /// Último mensaje recibido por WhatsApp: abre la ventana de 24 h para responder con texto libre.
+  ultimoMensajeWhatsappEn DateTime?
 
   @@index([gestoriaId, estado])
 }
@@ -311,19 +314,20 @@ enum EstadoConciliacion {
 
 /// Movimiento del extracto bancario de una empresa (importado o leído por Open Banking).
 model MovimientoBancario {
-  id             String           @id @default(cuid())
+  id             String                 @id @default(cuid())
   empresaId      String
-  empresa        Empresa          @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  empresa        Empresa                @relation(fields: [empresaId], references: [id], onDelete: Cascade)
   /// Id estable del movimiento: reimportar el mismo extracto no duplica.
   idExterno      String
-  fecha          DateTime         @db.Date
+  fecha          DateTime               @db.Date
   /// Negativo = cargo (gasto), positivo = abono.
-  importe        Decimal          @db.Decimal(14, 2)
+  importe        Decimal                @db.Decimal(14, 2)
   descripcion    String
   origen         OrigenMovimiento
   importadoPorId String?
-  createdAt      DateTime         @default(now())
+  createdAt      DateTime               @default(now())
   conciliacion   Conciliacion?
+  solicitud      SolicitudJustificante?
 
   @@unique([empresaId, idExterno])
   @@index([empresaId, fecha])
@@ -357,4 +361,32 @@ model ConexionBancaria {
   createdAt         DateTime  @default(now())
 
   @@index([empresaId])
+}
+
+enum EstadoSolicitud {
+  PENDIENTE
+  ENVIADA
+  RESUELTA
+  SIN_JUSTIFICANTE
+  OMITIDA
+  SIN_CANAL
+}
+
+/// Petición al cliente del justificante de un cargo bancario que no lo tiene.
+model SolicitudJustificante {
+  id            String             @id @default(cuid())
+  empresaId     String
+  empresa       Empresa            @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  movimientoId  String             @unique
+  movimiento    MovimientoBancario @relation(fields: [movimientoId], references: [id], onDelete: Cascade)
+  estado        EstadoSolicitud    @default(PENDIENTE)
+  envios        Int                @default(0)
+  ultimoEnvioEn DateTime?
+  /// «texto» (dentro de la ventana de 24 h) o «plantilla» (fuera de ella).
+  via           String?
+  creadaPorId   String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([empresaId, estado])
 }

@@ -21,6 +21,7 @@ const MensajeSchema = z
     id: z.string().min(1),
     from: z.string().min(5),
     type: z.string(),
+    text: z.object({ body: z.string().max(4096) }).optional(),
     image: z.object({ id: z.string().min(1), mime_type: z.string().optional() }).optional(),
     document: z
       .object({ id: z.string().min(1), mime_type: z.string().optional(), filename: z.string().optional() })
@@ -35,6 +36,8 @@ export interface MensajeEntrante {
   mediaId: string | null;
   nombre: string | null;
   tipo: string;
+  /** Cuerpo si es un mensaje de texto. */
+  texto: string | null;
 }
 
 /** Extrae solo mensajes con adjuntos; descarta estados, texto y payloads desconocidos. */
@@ -63,6 +66,7 @@ export function extraerMensajes(payload: unknown): MensajeEntrante[] {
           mediaId,
           nombre: m.document?.filename ?? null,
           tipo: m.type,
+          texto: m.type === "text" ? m.text?.body ?? null : null,
         });
       }
     }
@@ -133,6 +137,37 @@ export async function enviarTexto(numero: string, texto: string): Promise<boolea
     const e = ((await res.json().catch(() => ({}))) as { error?: { code?: number; type?: string; error_subcode?: number } }).error;
     log("warn", "whatsapp.envio_fallido", { status: res.status, codigo: e?.code, subcodigo: e?.error_subcode, tipo: e?.type });
     if (e?.code !== 131030) return false; // otro error: reintentar con otra forma del número no ayuda
+  }
+  return false;
+}
+
+/**
+ * Envía una plantilla aprobada por Meta (necesaria fuera de la ventana de 24 h). Los parámetros del cuerpo
+ * van en el orden {{1}}, {{2}}… de la plantilla. Misma lógica de reintento con y sin el «9» brasileño.
+ */
+export async function enviarPlantilla(numero: string, nombre: string, idioma: string, parametros: string[]): Promise<boolean> {
+  const c = config();
+  if (!c.WHATSAPP_PHONE_NUMBER_ID || !c.WHATSAPP_ACCESS_TOKEN) return false;
+  for (const destino of variantesNumero(numero)) {
+    const res = await fetch(`${GRAPH}/${version()}/${c.WHATSAPP_PHONE_NUMBER_ID}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${c.WHATSAPP_ACCESS_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to: destino,
+        type: "template",
+        template: {
+          name: nombre,
+          language: { code: idioma },
+          components: [{ type: "body", parameters: parametros.map((t) => ({ type: "text", text: t.replace(/[\n\t]+/g, " ").slice(0, 200) })) }],
+        },
+      }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (res.ok) return true;
+    const e = ((await res.json().catch(() => ({}))) as { error?: { code?: number; type?: string; error_subcode?: number } }).error;
+    log("warn", "whatsapp.plantilla_fallida", { status: res.status, codigo: e?.code, subcodigo: e?.error_subcode, tipo: e?.type });
+    if (e?.code !== 131030) return false;
   }
   return false;
 }

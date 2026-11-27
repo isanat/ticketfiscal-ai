@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { detectarMime, MAX_BYTES_JUSTIFICANTE } from "@/lib/archivos";
 import { config, whatsappConfigurado } from "@/lib/env";
+import { esNoTengo, marcarSinJustificante } from "@/lib/reclamaciones";
+import { prisma } from "@/lib/prisma";
 import { error } from "@/lib/http";
 import { log, mensajeError } from "@/lib/logger";
 import { LimiteIaAlcanzado, procesarJustificante } from "@/lib/pipeline";
@@ -83,6 +85,13 @@ async function procesarMensaje(m: MensajeEntrante): Promise<void> {
   }
   if (empresa.estado !== "APROBADA") {
     await responder(m.numero, "Su empresa todavía está pendiente de aprobación por su gestoría.");
+    return;
+  }
+  // Cada mensaje del cliente abre 24 h en las que se le puede escribir con texto libre.
+  await prisma.empresa.update({ where: { id: empresa.id }, data: { ultimoMensajeWhatsappEn: new Date() } });
+  if (!m.mediaId && m.texto && esNoTengo(m.texto)) {
+    const cerrada = await marcarSinJustificante(empresa.id);
+    await responder(m.numero, cerrada ? "Entendido, se lo comunicamos a su gestoría. Gracias." : "Entendido. Si tiene un justificante, envíeme la foto.");
     return;
   }
   if (!m.mediaId) {

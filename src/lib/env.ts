@@ -57,6 +57,9 @@ const esquema = z.object({
   // Open Banking (GoCardless Bank Account Data). Preparado y sin verificar: ver src/lib/banca/gocardless.ts.
   GOCARDLESS_SECRET_ID: z.string().min(8).optional(),
   GOCARDLESS_SECRET_KEY: z.string().min(8).optional(),
+  // Plantilla de WhatsApp (aprobada por Meta) para reclamar justificantes fuera de la ventana de 24 h.
+  WHATSAPP_PLANTILLA_RECLAMO: z.string().regex(/^[a-z0-9_]{1,512}$/).optional(),
+  WHATSAPP_PLANTILLA_IDIOMA: z.string().regex(/^[a-z]{2}(_[A-Z]{2})?$/).default("es"),
   // Límite diario de extracciones IA por empresa (control de coste).
   LIMITE_IA_DIARIO_EMPRESA: z.coerce.number().int().positive().default(50),
 });

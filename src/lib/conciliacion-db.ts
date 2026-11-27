@@ -4,6 +4,7 @@ import { conciliar, puntuar, type DocumentoConciliable, type Movimiento } from "
 import { parseCsvBanco, parseNorma43 } from "./extracto";
 import { aCentimos, aEuros } from "./money";
 import { prisma } from "./prisma";
+import { esReclamable, resolverPorConciliacion, solicitudesDe } from "./reclamaciones";
 import { registrarAuditoria } from "./store";
 import type { SesionActiva } from "./auth";
 
@@ -105,6 +106,7 @@ export async function vistaConciliacion(empresaId: string, trimestre?: string) {
     .map((d) => ({ id: d.id, fechaEmision: d.fechaEmision ? dia(d.fechaEmision) : null, totalCent: aCentimos(d.totalFactura.toNumber()), emisorNombre: d.emisorNombre, numeroFactura: d.numeroFactura }));
 
   const r = conciliar(movimientos, documentos);
+  const solicitudes = await solicitudesDe(empresaId);
   const mv = new Map(movs.map((m) => [m.id, m]));
   const dv = new Map(docs.map((d) => [d.id, d]));
   const sugerencias = r.pares.map((p) => ({
@@ -119,7 +121,14 @@ export async function vistaConciliacion(empresaId: string, trimestre?: string) {
   return {
     confirmados,
     sugerencias,
-    movimientosSinDocumento: r.movimientosSinDocumento.map((m) => movVista(mv.get(m.id)!)),
+    movimientosSinDocumento: r.movimientosSinDocumento.map((m) => {
+      const sol = solicitudes.get(m.id);
+      return {
+        ...movVista(mv.get(m.id)!),
+        reclamable: esReclamable({ importeCent: m.importeCent, descripcion: m.descripcion }),
+        solicitud: sol ? { estado: sol.estado, envios: sol.envios, ultimoEnvioEn: sol.ultimoEnvioEn?.toISOString() ?? null } : null,
+      };
+    }),
     documentosSinMovimiento: r.documentosSinMovimiento.map((d) => docVista(dv.get(d.id)!)),
     resumen: {
       cargos,
@@ -162,6 +171,7 @@ export async function confirmarConciliacion(
       detalle: { movimientoId, documentoId, puntuacion: r.puntuacion },
       impersonadoPorId: sesion.soporteAdminId,
     });
+    await resolverPorConciliacion(movimientoId);
     return "ok";
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return "ya_conciliado";

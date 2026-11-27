@@ -3,7 +3,7 @@
 // Conciliación bancaria: cruza el extracto del banco con los justificantes recibidos.
 // El motor sugiere y explica cada coincidencia; la gestoría confirma. Nada se concilia solo.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, FileUp, Link2Off, Loader2, ReceiptText, Wallet } from "lucide-react";
+import { CheckCircle2, FileUp, Link2Off, Loader2, ReceiptText, Send, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +18,15 @@ interface Mov {
   fecha: string;
   importe: number;
   descripcion: string;
+}
+interface Solicitud {
+  estado: "PENDIENTE" | "ENVIADA" | "RESUELTA" | "SIN_JUSTIFICANTE" | "OMITIDA" | "SIN_CANAL";
+  envios: number;
+  ultimoEnvioEn: string | null;
+}
+interface MovSinDoc extends Mov {
+  reclamable: boolean;
+  solicitud: Solicitud | null;
 }
 interface Doc {
   id: string;
@@ -43,7 +52,7 @@ interface Confirmada {
 interface Vista {
   confirmados: Confirmada[];
   sugerencias: Sugerencia[];
-  movimientosSinDocumento: Mov[];
+  movimientosSinDocumento: MovSinDoc[];
   documentosSinMovimiento: Doc[];
   resumen: {
     cargos: number;
@@ -175,6 +184,53 @@ export function ConciliacionView({
     const js = await res.json().catch(() => ({}));
     setOcupado(null);
     if (!res.ok) toast({ title: "No se pudo confirmar", description: js.error, variant: "destructive" });
+    else refrescar();
+  }
+
+  const MENSAJES: Record<string, string> = {
+    enviada: "Enviada",
+    sin_canal: "No se pudo enviar (la empresa no tiene WhatsApp o Meta lo rechazó)",
+    fuera_de_ventana: "Fuera de la ventana de 24 h y sin plantilla de WhatsApp configurada",
+    limite: "Ya se reclamó hace poco (máximo 3 veces, separadas 72 h)",
+    no_reclamable: "Ese cargo no es reclamable",
+    cerrada: "Esa solicitud ya está cerrada",
+    no_existe: "Cargo no encontrado",
+  };
+
+  async function reclamar(ids: string[]) {
+    if (ids.length === 0) return;
+    setOcupado("reclamar");
+    const res = await fetch("/api/conciliacion/reclamar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ empresaId, movimientoIds: ids.slice(0, 20) }),
+    });
+    const js = await res.json().catch(() => ({}));
+    setOcupado(null);
+    if (!res.ok) {
+      toast({ title: "No se pudo reclamar", description: js.error, variant: "destructive" });
+      return;
+    }
+    const r = (js.resultados ?? []) as Array<{ resultado: string }>;
+    const ok = r.filter((x) => x.resultado === "enviada").length;
+    const otros = [...new Set(r.filter((x) => x.resultado !== "enviada").map((x) => MENSAJES[x.resultado] ?? x.resultado))];
+    toast({
+      title: ok > 0 ? `${ok} reclamación(es) enviada(s) al cliente` : "No se envió ninguna reclamación",
+      description: otros.length ? otros.join(" · ") : undefined,
+      variant: ok > 0 ? "default" : "destructive",
+    });
+    refrescar();
+  }
+
+  async function omitir(movimientoId: string) {
+    setOcupado(movimientoId);
+    const res = await fetch("/api/conciliacion/omitir", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ empresaId, movimientoId }),
+    });
+    setOcupado(null);
+    if (!res.ok) toast({ title: "No se pudo omitir", variant: "destructive" });
     else refrescar();
   }
 
@@ -329,7 +385,7 @@ export function ConciliacionView({
               </Card>
             )}
 
-            <div className="grid gap-6 xl:grid-cols-2">
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 font-serif text-base">
@@ -338,7 +394,30 @@ export function ConciliacionView({
                   <CardDescription>{esCliente ? "Pagos de su banco para los que falta la factura o el ticket: envíelos desde «Enviar justificante»." : "Pagos del banco para los que falta factura o ticket: es lo que hay que reclamar al cliente."}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <TablaMov filas={vista.movimientosSinDocumento} vacio="Todos los cargos tienen justificante." />
+                  {!esCliente && vista.movimientosSinDocumento.some((m) => m.reclamable && (!m.solicitud || ["PENDIENTE", "ENVIADA", "SIN_CANAL"].includes(m.solicitud.estado))) && (
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-secondary/50 px-3 py-2">
+                      <p className="text-xs text-muted-foreground">Se avisa al cliente por WhatsApp. Máximo 3 avisos por cargo, separados 72 h.</p>
+                      <Button
+                        size="sm"
+                        disabled={ocupado === "reclamar"}
+                        onClick={() =>
+                          void reclamar(
+                            vista.movimientosSinDocumento
+                              .filter((m) => m.reclamable && (!m.solicitud || ["PENDIENTE", "SIN_CANAL"].includes(m.solicitud.estado)))
+                              .map((m) => m.id)
+                          )
+                        }
+                      >
+                        {ocupado === "reclamar" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
+                        Reclamar todos
+                      </Button>
+                    </div>
+                  )}
+                  <TablaMov
+                    filas={vista.movimientosSinDocumento}
+                    vacio="Todos los cargos tienen justificante."
+                    acciones={esCliente ? undefined : { reclamar: (id) => void reclamar([id]), omitir: (id) => void omitir(id), ocupado }}
+                  />
                 </CardContent>
               </Card>
               <Card>
@@ -434,7 +513,24 @@ function Kpi({ etiqueta, valor, tono }: { etiqueta: string; valor: number; tono?
   );
 }
 
-function TablaMov({ filas, vacio }: { filas: Mov[]; vacio: string }) {
+const ETIQUETA_ESTADO: Record<string, { texto: string; clase: string }> = {
+  ENVIADA: { texto: "Reclamado", clase: "border-sky-300 bg-sky-50 text-sky-800" },
+  RESUELTA: { texto: "Resuelto", clase: "border-emerald-300 bg-emerald-50 text-emerald-800" },
+  SIN_JUSTIFICANTE: { texto: "El cliente no lo tiene", clase: "border-amber-300 bg-amber-50 text-amber-800" },
+  OMITIDA: { texto: "Omitido", clase: "border-slate-300 bg-slate-50 text-slate-700" },
+  SIN_CANAL: { texto: "Sin canal", clase: "border-red-300 bg-red-50 text-red-800" },
+  PENDIENTE: { texto: "Pendiente", clase: "border-slate-300 bg-slate-50 text-slate-700" },
+};
+
+function TablaMov({
+  filas,
+  vacio,
+  acciones,
+}: {
+  filas: MovSinDoc[];
+  vacio: string;
+  acciones?: { reclamar: (id: string) => void; omitir: (id: string) => void; ocupado: string | null };
+}) {
   return (
     <div className="overflow-x-auto">
       <Table>
@@ -443,23 +539,51 @@ function TablaMov({ filas, vacio }: { filas: Mov[]; vacio: string }) {
             <TableHead>Fecha</TableHead>
             <TableHead>Concepto</TableHead>
             <TableHead className="text-right">Importe</TableHead>
+            {acciones && <TableHead>Reclamación</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
           {filas.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={3} className="py-6 text-center text-sm text-muted-foreground">
+              <TableCell colSpan={acciones ? 4 : 3} className="py-6 text-center text-sm text-muted-foreground">
                 {vacio}
               </TableCell>
             </TableRow>
           ) : (
-            filas.map((m) => (
-              <TableRow key={m.id}>
-                <TableCell className="whitespace-nowrap text-xs">{fecha(m.fecha)}</TableCell>
-                <TableCell className="max-w-[240px] truncate text-sm">{m.descripcion}</TableCell>
-                <TableCell className="text-right text-sm tabular-nums">{eur(Math.abs(m.importe))}</TableCell>
-              </TableRow>
-            ))
+            filas.map((m) => {
+              const est = m.solicitud ? ETIQUETA_ESTADO[m.solicitud.estado] : null;
+              const cerrada = m.solicitud && ["RESUELTA", "SIN_JUSTIFICANTE", "OMITIDA"].includes(m.solicitud.estado);
+              return (
+                <TableRow key={m.id} className={cerrada ? "opacity-60" : undefined}>
+                  <TableCell className="whitespace-nowrap text-xs">{fechaEs(m.fecha)}</TableCell>
+                  <TableCell className="max-w-[240px] truncate text-sm">{m.descripcion}</TableCell>
+                  <TableCell className="text-right text-sm tabular-nums">{eur(Math.abs(m.importe))}</TableCell>
+                  {acciones && (
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {est && (
+                          <Badge variant="outline" className={est.clase}>
+                            {est.texto}
+                            {m.solicitud && m.solicitud.envios > 0 ? ` · ${m.solicitud.envios}×` : ""}
+                          </Badge>
+                        )}
+                        {!m.reclamable && !est && <span className="text-xs text-muted-foreground">Sin factura habitual</span>}
+                        {m.reclamable && !cerrada && (
+                          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={acciones.ocupado !== null} onClick={() => acciones.reclamar(m.id)}>
+                            {m.solicitud?.estado === "ENVIADA" ? "Reenviar" : "Reclamar"}
+                          </Button>
+                        )}
+                        {!cerrada && (
+                          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" disabled={acciones.ocupado !== null} onClick={() => acciones.omitir(m.id)}>
+                            Omitir
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  )}
+                </TableRow>
+              );
+            })
           )}
         </TableBody>
       </Table>
