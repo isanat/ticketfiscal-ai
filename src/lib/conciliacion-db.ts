@@ -1,7 +1,7 @@
 // Conciliación sobre la base de datos: importación de extractos, vista de coincidencias y confirmación.
 import { Prisma } from "@prisma/client";
 import { conciliar, puntuar, type DocumentoConciliable, type Movimiento } from "./conciliacion";
-import { detectarFormatoExtracto, parseCsvBanco, parseNorma43 } from "./extracto";
+import { detectarFormatoExtracto, firmaFormato, parseCsvBanco, parseNorma43 } from "./extracto";
 import { aCentimos, aEuros } from "./money";
 import { prisma } from "./prisma";
 import { esReclamable, resolverPorConciliacion, solicitudesDe } from "./reclamaciones";
@@ -45,6 +45,8 @@ export interface VistaPreviaExtracto {
   hasta: string | null;
   ejemplos: Array<{ fecha: string; descripcion: string; importe: number }>;
   avisos: string[];
+  /** Forma de las primeras líneas, sin datos personales (letras → A, cifras → 9), para diagnosticar formatos. */
+  firma: string[];
 }
 
 /** Lee el archivo sin guardar nada: el usuario ve qué se importaría antes de confirmar. */
@@ -74,6 +76,7 @@ export async function previsualizarExtracto(empresaId: string, formato: FormatoE
     hasta: fechas[fechas.length - 1] ?? null,
     ejemplos: movs.slice(0, 3).map((m) => ({ fecha: m.fecha, descripcion: m.descripcion, importe: aEuros(m.importeCent) })),
     avisos,
+    firma: firmaFormato(contenido),
   };
 }
 

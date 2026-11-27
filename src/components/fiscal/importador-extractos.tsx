@@ -25,12 +25,15 @@ interface Vista {
   hasta: string | null;
   ejemplos: Array<{ fecha: string; descripcion: string; importe: number }>;
   avisos: string[];
+  firma: string[];
 }
 interface Pendiente {
   nombre: string;
   contenido: string;
   vista?: Vista;
   error?: string;
+  /** Forma del archivo sin datos personales, para pedir ayuda si no se reconoce. */
+  firma?: string[];
   /** Archivo Excel convertido a CSV en el navegador. */
   excel?: boolean;
 }
@@ -48,6 +51,23 @@ async function leerArchivo(f: File): Promise<string> {
   const buf = await f.arrayBuffer();
   const utf8 = new TextDecoder("utf-8").decode(buf);
   return utf8.includes("�") ? new TextDecoder("iso-8859-1").decode(buf) : utf8;
+}
+
+/** Forma del archivo (letras → A, cifras → 9): se puede copiar y enviar a soporte sin exponer datos reales. */
+function FirmaFormato({ firma }: { firma: string[] }) {
+  const texto = firma.join("\n");
+  return (
+    <details className="mt-2 rounded border bg-white text-xs">
+      <summary className="cursor-pointer px-2 py-1 font-medium">¿Su banco usa otro formato? Copie esto para que lo soportemos</summary>
+      <div className="space-y-1.5 border-t px-2 py-2">
+        <p className="text-muted-foreground">Solo contiene la <strong>forma</strong> del archivo: las letras se sustituyen por «A» y las cifras por «9». No incluye importes, nombres ni números de cuenta.</p>
+        <pre className="overflow-x-auto rounded bg-secondary/60 p-2 font-mono text-[11px] leading-snug">{texto}</pre>
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => void navigator.clipboard?.writeText(texto).then(() => toast({ title: "Copiado" }))}>
+          Copiar
+        </Button>
+      </div>
+    </details>
+  );
 }
 
 export function ImportadorExtractos({ empresaId, onImportado }: { empresaId: string; onImportado: () => void }) {
@@ -80,7 +100,7 @@ export function ImportadorExtractos({ empresaId, onImportado }: { empresaId: str
         const js = await res.json().catch(() => ({}));
         if (!res.ok) lista.push({ nombre: f.name, contenido, error: js.error ?? "No se pudo leer el archivo." });
         else if (!js.vista || js.vista.total === 0) {
-          lista.push({ nombre: f.name, contenido, error: "No se reconoció ningún movimiento. Compruebe que es un extracto CSV (con cabecera Fecha, Concepto, Importe) o Norma 43." });
+          lista.push({ nombre: f.name, contenido, firma: js.vista?.firma, error: "No se reconoció ningún movimiento. Compruebe que es un extracto CSV o Excel (con cabecera Fecha, Concepto, Importe) o Norma 43." });
         } else lista.push({ nombre: f.name, contenido, vista: js.vista, excel: esXlsx(f) });
       } catch {
         lista.push({ nombre: f.name, contenido: "", error: esXlsx(f) ? "No se pudo abrir el Excel. Compruebe que no está dañado ni protegido con contraseña." : "No se pudo leer el archivo." });
@@ -201,6 +221,7 @@ export function ImportadorExtractos({ empresaId, onImportado }: { empresaId: str
                   )}
                 </div>
                 {p.error && <p className="mt-1 text-xs text-red-800">{p.error}</p>}
+                {p.firma && p.firma.length > 0 && <FirmaFormato firma={p.firma} />}
                 {p.vista && (
                   <>
                     <p className="mt-1 text-xs text-muted-foreground">

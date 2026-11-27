@@ -18,7 +18,7 @@ Cada punto indica si está **hecho y verificado**, **hecho sin verificar contra 
 
 ## 2. Hecho pero sin verificar contra el servicio real
 
-1. **Norma 43.** El lector se probó con datos sintéticos. Falta un extracto real de un banco español (cada entidad tiene variantes).
+1. **Norma 43 y extractos reales (CSV/Excel).** Los lectores se probaron con archivos sintéticos (incluidos .xlsx reales generados con otra herramienta) y **nunca con un extracto de un banco español**; las posiciones de Norma 43 no se han contrastado con la especificación oficial (los PDF públicos de Cajamar y Laboral Kutxa no son accesibles desde el entorno de desarrollo). Mitigación: si un archivo no se reconoce, la pantalla ofrece una «firma del formato» (letras → A, cifras → 9, sin datos personales) que el cliente del piloto puede copiar para que se soporte ese banco. Pendiente: contrastar con la especificación oficial y con extractos reales del piloto.
 2. **WhatsApp Cloud API (Meta).** Webhook, firma y respuestas implementados; no hay credenciales de Meta cargadas, así que nunca se ha ejecutado de extremo a extremo.
 3. **Calidad de extracción con fotos reales.** Las muestras eran limpias. Los tickets reales (arrugados, torcidos, térmicos descoloridos) darán peor resultado; hay que medirlo con un conjunto de, al menos, 100–200 tickets reales etiquetados.
 4. **Anthropic.** La clave carece de crédito; el proveedor está implementado y probado con respuestas simuladas, no con llamadas reales.

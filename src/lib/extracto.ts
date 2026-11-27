@@ -98,6 +98,19 @@ function dividir(linea: string, sep: string): string[] {
   return celdas.map((c) => c.trim());
 }
 
+/**
+ * «Firma» de un archivo para diagnosticar formatos sin ver datos personales: las primeras líneas con las letras
+ * sustituidas por «A» y las cifras por «9». Conserva separadores, longitudes y estructura; nunca importes ni nombres.
+ */
+export function firmaFormato(contenido: string, lineas = 5, ancho = 120): string[] {
+  return contenido
+    .replace(/^\uFEFF/, "")
+    .split(/\r?\n/)
+    .filter((l) => l.trim().length > 0)
+    .slice(0, lineas)
+    .map((l) => l.slice(0, ancho).replace(/\p{L}/gu, "A").replace(/\d/g, "9"));
+}
+
 /** Norma 43 empieza por un registro «11» (cabecera de cuenta) de 80 posiciones numéricas; todo lo demás se trata como CSV. */
 export function detectarFormatoExtracto(contenido: string): "csv" | "n43" {
   const primera = contenido.replace(/^\uFEFF/, "").split(/\r?\n/).find((l) => l.trim().length > 0) ?? "";

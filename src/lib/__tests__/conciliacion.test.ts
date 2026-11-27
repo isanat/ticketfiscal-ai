@@ -149,3 +149,17 @@ describe("extractos: detección de formato y columnas tolerantes", () => {
     expect(r.movimientos[0].importeCent).toBe(-2000);
   });
 });
+
+describe("firmaFormato (diagnóstico sin datos personales)", () => {
+  it("sustituye letras por A y cifras por 9, conserva separadores y no deja datos", async () => {
+    const { firmaFormato } = await import("../extracto");
+    const f = firmaFormato("﻿Fecha;Concepto;Importe\n15/07/2026;COMPRA Ñandú S.L. ES91 2100 0418;-1.234,56\n\n");
+    expect(f).toEqual(["AAAAA;AAAAAAAA;AAAAAAA", "99/99/9999;AAAAAA AAAAA A.A. AA99 9999 9999;-9.999,99"]);
+    expect(f.join("")).not.toMatch(/[0-8]|Ñ|COMPRA/);
+  });
+  it("limita líneas y ancho", async () => {
+    const { firmaFormato } = await import("../extracto");
+    expect(firmaFormato("x\n".repeat(20))).toHaveLength(5);
+    expect(firmaFormato("a".repeat(500))[0]).toHaveLength(120);
+  });
+});
