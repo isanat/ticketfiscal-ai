@@ -1,6 +1,6 @@
 "use client";
 
-// Importación de extractos bancarios: arrastrar o elegir varios archivos (CSV o Norma 43), ver qué se leería
+// Importación de extractos bancarios: arrastrar o elegir varios archivos (CSV, Excel o Norma 43), ver qué se leería
 // y confirmar. El formato se detecta solo. Nada se guarda hasta confirmar.
 import { useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown, FileUp, FileWarning, Loader2, UploadCloud } from "lucide-react";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { eur, fechaEs } from "@/lib/format";
+import { xlsxACsv } from "@/lib/hoja-calculo";
 import { cn } from "@/lib/utils";
 
 interface Vista {
@@ -30,14 +31,20 @@ interface Pendiente {
   contenido: string;
   vista?: Vista;
   error?: string;
+  /** Archivo Excel convertido a CSV en el navegador. */
+  excel?: boolean;
 }
 
 const MAX_BYTES = 2_000_000;
 const MAX_ARCHIVOS = 12;
-const EXTENSIONES = ".csv,.txt,.n43,.c43,.q43,.aeb43,.tsv,text/csv,text/plain";
+const EXTENSIONES = ".csv,.txt,.n43,.c43,.q43,.aeb43,.tsv,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-/** Los extractos de banco (sobre todo Norma 43) suelen venir en ISO-8859-1. */
+const esXlsx = (f: File) => /\.xlsx$/i.test(f.name);
+const esXlsAntiguo = (f: File) => /\.xls$/i.test(f.name);
+
+/** Los extractos de banco (sobre todo Norma 43) suelen venir en ISO-8859-1. Los .xlsx se convierten a CSV aquí. */
 async function leerArchivo(f: File): Promise<string> {
+  if (esXlsx(f)) return xlsxACsv(await f.arrayBuffer());
   const buf = await f.arrayBuffer();
   const utf8 = new TextDecoder("utf-8").decode(buf);
   return utf8.includes("�") ? new TextDecoder("iso-8859-1").decode(buf) : utf8;
@@ -59,6 +66,10 @@ export function ImportadorExtractos({ empresaId, onImportado }: { empresaId: str
         lista.push({ nombre: f.name, contenido: "", error: "Supera 2 MB. Descargue un periodo más corto." });
         continue;
       }
+      if (esXlsAntiguo(f)) {
+        lista.push({ nombre: f.name, contenido: "", error: "Es un Excel antiguo (.xls). Ábralo y guárdelo como «Libro de Excel (.xlsx)» o como CSV, y vuelva a subirlo." });
+        continue;
+      }
       try {
         const contenido = await leerArchivo(f);
         const res = await fetch("/api/conciliacion/importar", {
@@ -70,9 +81,9 @@ export function ImportadorExtractos({ empresaId, onImportado }: { empresaId: str
         if (!res.ok) lista.push({ nombre: f.name, contenido, error: js.error ?? "No se pudo leer el archivo." });
         else if (!js.vista || js.vista.total === 0) {
           lista.push({ nombre: f.name, contenido, error: "No se reconoció ningún movimiento. Compruebe que es un extracto CSV (con cabecera Fecha, Concepto, Importe) o Norma 43." });
-        } else lista.push({ nombre: f.name, contenido, vista: js.vista });
+        } else lista.push({ nombre: f.name, contenido, vista: js.vista, excel: esXlsx(f) });
       } catch {
-        lista.push({ nombre: f.name, contenido: "", error: "No se pudo leer el archivo." });
+        lista.push({ nombre: f.name, contenido: "", error: esXlsx(f) ? "No se pudo abrir el Excel. Compruebe que no está dañado ni protegido con contraseña." : "No se pudo leer el archivo." });
       }
     }
     if (archivos.length > MAX_ARCHIVOS) toast({ title: `Se leerán solo los ${MAX_ARCHIVOS} primeros archivos`, description: "Importe el resto después." });
@@ -138,7 +149,7 @@ export function ImportadorExtractos({ empresaId, onImportado }: { empresaId: str
       >
         {leyendo ? <Loader2 className="h-6 w-6 animate-spin text-primary" /> : <UploadCloud className="h-6 w-6 text-primary" />}
         <p className="text-sm font-medium">{leyendo ? "Leyendo los archivos…" : "Arrastre aquí sus extractos o haga clic para elegirlos"}</p>
-        <p className="text-xs text-muted-foreground">CSV o Norma 43 · puede subir varios meses a la vez · el formato se detecta solo · máx. 2 MB por archivo</p>
+        <p className="text-xs text-muted-foreground">CSV, Excel (.xlsx) o Norma 43 · puede subir varios meses a la vez · el formato se detecta solo · máx. 2 MB por archivo</p>
         <input ref={input} type="file" multiple accept={EXTENSIONES} className="sr-only" aria-label="Archivos de extracto" onChange={(e) => void preparar(Array.from(e.target.files ?? []))} />
       </div>
 
@@ -153,7 +164,7 @@ export function ImportadorExtractos({ empresaId, onImportado }: { empresaId: str
             (también llamado «AEB 43» o «Cuaderno 43») si su banco lo ofrece; si no, <strong>CSV</strong>. El menú exacto cambia según la entidad.
           </p>
           <p>
-            Si solo ofrece Excel, ábralo y guárdelo como <strong>CSV</strong>. Necesita una cabecera con las columnas <em>Fecha</em>, <em>Concepto</em> e <em>Importe</em> (o <em>Cargo</em> y <em>Abono</em>); los gastos deben ir en negativo o en la columna de cargos.
+            También puede subir el <strong>Excel (.xlsx)</strong> que le dé el banco, tal cual. El archivo necesita una cabecera con las columnas <em>Fecha</em>, <em>Concepto</em> e <em>Importe</em> (o <em>Cargo</em> y <em>Abono</em>); los gastos deben ir en negativo o en la columna de cargos. Si es un Excel antiguo (.xls), guárdelo como .xlsx o CSV.
           </p>
           <p>
             Subir dos veces el mismo extracto no duplica nada.{" "}
@@ -181,7 +192,7 @@ export function ImportadorExtractos({ empresaId, onImportado }: { empresaId: str
                   <p className="min-w-0 truncate text-sm font-medium">{p.nombre}</p>
                   {p.vista ? (
                     <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-700">
-                      <CheckCircle2 className="h-3.5 w-3.5" /> {p.vista.formato === "n43" ? "Norma 43" : "CSV"}
+                      <CheckCircle2 className="h-3.5 w-3.5" /> {p.vista.formato === "n43" ? "Norma 43" : p.excel ? "Excel" : "CSV"}
                     </span>
                   ) : (
                     <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-red-700">

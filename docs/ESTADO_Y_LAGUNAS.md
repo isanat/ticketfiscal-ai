@@ -25,7 +25,7 @@ Cada punto indica si está **hecho y verificado**, **hecho sin verificar contra 
 
 ## 3. Lagunas pendientes
 
-> **Fuera del alcance (decisión del dueño, 27-11-2026):** la conexión bancaria automática (Open Banking). GoCardless cerró las altas nuevas y las alternativas tienen un coste elevado. La conciliación se hace importando el extracto (CSV o Norma 43).
+> **Fuera del alcance (decisión del dueño, 27-11-2026):** la conexión bancaria automática (Open Banking). GoCardless cerró las altas nuevas y las alternativas tienen un coste elevado. La conciliación se hace importando el extracto (CSV, Excel o Norma 43).
 
 ### 3.1 Cumplimiento y legal (bloqueantes para lanzar con clientes reales)
 - **Contrato de encargo del tratamiento (art. 28 RGPD)** y políticas de privacidad, cookies y condiciones de uso: **no existen**. Debe redactarlos un abogado.

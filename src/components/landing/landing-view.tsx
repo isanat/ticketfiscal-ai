@@ -111,7 +111,7 @@ const CARACTERISTICAS: {
     icono: Landmark,
     titulo: "Conciliación con el extracto",
     descripcion:
-      "Suba el extracto del banco (CSV o Norma 43) y el sistema propone qué cargo corresponde a qué justificante, explicando el porqué. Los cargos sin justificante se reclaman al cliente por WhatsApp.",
+      "Suba el extracto del banco (CSV, Excel o Norma 43) y el sistema propone qué cargo corresponde a qué justificante, explicando el porqué. Los cargos sin justificante se reclaman al cliente por WhatsApp.",
   },
   {
     icono: Building2,

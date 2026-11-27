@@ -19,7 +19,7 @@ const Body = z.object({
   contenido: z.string().min(10).max(MAX_CONTENIDO),
 });
 
-/** Importa un extracto (CSV o Norma 43). Reimportar el mismo extracto no duplica movimientos. */
+/** Importa un extracto (CSV, Excel o Norma 43). Reimportar el mismo extracto no duplica movimientos. */
 export async function POST(req: NextRequest) {
   try {
     if (!origenPermitido(req)) return error("Origen no permitido", 403);

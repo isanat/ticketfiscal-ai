@@ -220,7 +220,7 @@ export function ConciliacionView({
             <Wallet className="h-4 w-4 text-primary" /> Cruce del extracto con los justificantes
           </CardTitle>
           <CardDescription>
-            Suba el extracto del banco (CSV o Norma 43). El sistema propone qué cargo corresponde a qué justificante y explica por qué; usted
+            Suba el extracto del banco (CSV, Excel o Norma 43). El sistema propone qué cargo corresponde a qué justificante y explica por qué; usted
             confirma. Reimportar el mismo extracto no duplica movimientos.
           </CardDescription>
         </CardHeader>
