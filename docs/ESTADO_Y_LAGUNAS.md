@@ -67,3 +67,5 @@ Cada punto indica si está **hecho y verificado**, **hecho sin verificar contra 
 3. Piloto con 2–3 gestorías reales: medir extracción con fotos reales, probar importación en su software y la conciliación con su banco (Norma 43 real).
 4. Alertas, copias de seguridad y recuperación del administrador.
 5. Cobro.
+
+Véase también `docs/BACKLOG_Y_FUTURO.md` (lista completa de pendientes, lecturas en cola y plan de validación) y `docs/REPOSITORIOS_EXTERNOS.md`.
